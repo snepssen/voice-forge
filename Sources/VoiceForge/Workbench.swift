@@ -8,6 +8,7 @@ struct Workbench: View {
     @EnvironmentObject var studio: Studio
     @State private var exporting = false
     @State private var addingVoice = false
+    @State private var removing: VoiceProfile?
 
     var body: some View {
         HSplitView {
@@ -128,11 +129,31 @@ struct Workbench: View {
                     .font(.caption).foregroundStyle(Monokai.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // **Every installed voice is listed, not only the selected one.**
+            // Removal used to hang off the picker, so a voice could only be
+            // removed by first selecting it -- which meant the app could add
+            // voices and, in practice, not remove them. Managing a thing you
+            // are not currently using is the whole point of managing it.
+            if !installed.isEmpty {
+                Divider().overlay(Monokai.inset)
+                ForEach(installed) { profile in
+                    HStack(spacing: 8) {
+                        Text(profile.name).foregroundStyle(Monokai.fg)
+                        Text("installed").font(.caption2).foregroundStyle(Monokai.comment)
+                        Spacer()
+                        Button {
+                            removing = profile
+                        } label: { Image(systemName: "trash") }
+                            .contentShape(Rectangle())
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Monokai.comment)
+                            .help("Remove \(profile.name) from the voices folder")
+                    }
+                    .font(.caption)
+                }
+            }
             HStack(spacing: 8) {
                 Button("Add a voice…") { addingVoice = true }
-                if !studio.isBundled(studio.voice) {
-                    Button("Remove") { studio.removeInstalledVoice(studio.voice) }
-                }
                 Button("Voices folder") {
                     AppDirectories.ensure()
                     NSWorkspace.shared.open(AppDirectories.voices)
@@ -149,6 +170,25 @@ struct Workbench: View {
             guard case .success(let url) = result else { return }
             if let name = studio.installVoice(from: url) { studio.voice = name }
         }
+        // Confirmed, because the files being deleted may be days of training
+        // that exist nowhere else.
+        .alert("Remove \(removing?.name ?? "")?", isPresented: Binding(
+            get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+            Button("Remove", role: .destructive) {
+                if let r = removing { studio.removeInstalledVoice(r.name) }
+                removing = nil
+            }
+            Button("Cancel", role: .cancel) { removing = nil }
+        } message: {
+            Text("Its model and config are deleted from the voices folder. If they exist nowhere else, that is days of training gone.")
+        }
+    }
+
+    /// Voices the listener installed, which are the ones they can remove. The
+    /// bundled voice is inside the app and is not ours to delete on their
+    /// behalf.
+    private var installed: [VoiceProfile] {
+        studio.profiles.filter { !$0.isBundled }
     }
 
     /// The guide ships beside the app so it works with no network. Falling back
