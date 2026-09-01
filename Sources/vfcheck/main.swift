@@ -72,10 +72,7 @@ do {
     c.equal(d.noiseW, 0.8, "noise_w")
     c.equal(d.trailingPads, 2, "two trailing pads, the measured optimum")
     c.expect(d.dropFinalFullStop, "and the final full stop is dropped")
-    c.expect(SynthesisSettings.note(forLengthScale: 1.0).contains("0.3%"),
-             "1.0 is explained as measured, not as a default")
-    c.expect(SynthesisSettings.note(forLengthScale: 1.2).contains("20% slower"),
-             "and a departure is described in plain terms")
+
     var bad = d; bad.lengthScale = 5
     c.expect(!bad.isWithinRanges, "a value outside its range is caught")
 }
@@ -186,6 +183,95 @@ do {
     c.expect(rHot.truePeakAfter <= -1 + 0.15, "the true-peak ceiling is respected")
     c.expect(rHot.heldBackByCeiling, "and the app says the target was not reached")
 } catch { c.expect(false, "export checks threw: \(error)") }
+
+// ---------------------------------------------------------------- voice notes
+// A claim attached to the wrong thing. The pace dial said "the reader's own
+// rate, measured to within 0.3%" under every voice. The measurement is real but
+// was made on snepssen-rode against the reader's own recordings; snepssen-suno
+// was fine-tuned on generated audio and reads 31% faster on identical copy --
+// 194 words a minute against 148, with commas worth 145 ms against 457.
+// Printing rode's measurement under suno was simply false.
+c.suite("voice notes")
+do {
+    c.expect(VoiceNotes.note("snepssen-rode")?.paceReference != nil,
+             "the measured voice carries its measurement")
+    c.expect(VoiceNotes.note("snepssen-suno")?.paceReference == nil,
+             "and the unmeasured one does not borrow it")
+    let rode = VoiceNotes.paceNote(voice: "snepssen-rode", lengthScale: 1.0)
+    let suno = VoiceNotes.paceNote(voice: "snepssen-suno", lengthScale: 1.0)
+    c.expect(rode.contains("0.3%"), "rode says it is a measured likeness")
+    c.expect(!suno.contains("0.3%"),
+             "suno does not claim a likeness nobody measured for it")
+    c.expect(suno.contains("where it was trained"),
+             "and says plainly what 1.0 means for it instead")
+    c.expect(rode != suno, "the two voices do not say the same thing at 1.0")
+
+    // An unknown voice must not be given somebody else's numbers either.
+    let unknown = VoiceNotes.paceNote(voice: "not-a-voice", lengthScale: 1.0)
+    c.expect(!unknown.contains("0.3%"), "an unknown voice claims nothing")
+
+    // A departure is described against the voice's own rate, not a shared one.
+    let slow = VoiceNotes.paceNote(voice: "snepssen-suno", lengthScale: 1.2)
+    c.expect(slow.contains("20% slower"), "a departure is named in plain terms")
+    c.expect(slow.contains("194"), "against this voice's own measured rate")
+    c.expect(VoiceNotes.paceNote(voice: "snepssen-rode", lengthScale: 1.2).contains("148"),
+             "and the other voice's against its own")
+}
+
+// ----------------------------------------------------------- export preview
+// The preview has to agree with what the write actually does, or it is worse
+// than not having one: a number that is confidently wrong about the file you
+// are about to make. So it is checked against a real write, not on its own.
+c.suite("export preview")
+do {
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appending(path: "vf-p-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmp) }
+
+    let rate = Audio.modelSampleRate
+    func tone(_ amp: Double) -> [Float] {
+        (0..<Int(rate * 2)).map { Float(amp * sin(2 * Double.pi * 220 * Double($0) / rate)) }
+    }
+    var settings = Export.Settings()
+    settings.sampleRate = 48_000
+    settings.targetLUFS = -14
+
+    // A quiet, reachable case.
+    let quiet = tone(0.05)
+    guard let p1 = Export.preview(quiet, at: rate, settings: settings) else {
+        throw NSError(domain: "p", code: 1)
+    }
+    let r1 = try Export.write(quiet, at: rate, to: tmp.appending(path: "a.wav"), settings: settings)
+    c.close(p1.resultingLUFS, r1.lufsAfter, 0.15, "the preview matches the file it predicts")
+    c.close(p1.lufs, r1.lufsBefore, 0.01, "and agrees about the level before gain")
+    c.equal(p1.heldBack, r1.heldBackByCeiling, "and about whether the ceiling bit")
+    c.expect(!p1.heldBack, "a quiet, peak-clean source reaches its target")
+    c.close(p1.shortfall, 0, 0.01, "with nothing left on the table")
+
+    // The peaky case that cannot reach the target on gain alone -- the one a
+    // single dry voice actually hits.
+    var peaky = tone(0.02)
+    for i in stride(from: 500, to: peaky.count, by: 7000) { peaky[i] = 0.95 }
+    guard let p2 = Export.preview(peaky, at: rate, settings: settings) else {
+        throw NSError(domain: "p", code: 2)
+    }
+    let r2 = try Export.write(peaky, at: rate, to: tmp.appending(path: "b.wav"), settings: settings)
+    c.expect(p2.heldBack, "a peaky source is predicted to fall short")
+    c.equal(p2.heldBack, r2.heldBackByCeiling, "and the file agrees")
+    c.close(p2.resultingLUFS, r2.lufsAfter, 0.15, "and lands where the preview said")
+    c.expect(p2.shortfall > 1, "with the shortfall named (\(String(format: "%.1f", p2.shortfall)) dB)")
+    c.note(String(format: "peaky source: %.1f LUFS, peak %.1f dBTP -> %.1f LUFS (%.1f dB short)",
+                  p2.lufs, p2.truePeak, p2.resultingLUFS, p2.shortfall))
+
+    // "Leave it alone" must predict no change at all.
+    var asIs = settings; asIs.targetLUFS = nil
+    guard let p3 = Export.preview(quiet, at: rate, settings: asIs) else {
+        throw NSError(domain: "p", code: 3)
+    }
+    c.close(p3.resultingLUFS, p3.lufs, 0.001, "leaving it alone changes nothing")
+    c.expect(!p3.heldBack, "and cannot be held back by a ceiling it is not aiming at")
+} catch { c.expect(false, "export preview checks threw: \(error)") }
 
 // --------------------------------------------------------------- calibration
 c.suite("pause calibration")

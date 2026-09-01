@@ -61,6 +61,45 @@ public enum Export {
         public var heldBackByCeiling: Bool
     }
 
+    /// What an export *would* do, without writing anything.
+    ///
+    /// The reason this exists: a single voice reading a script is typically
+    /// around -24 LUFS with peaks near -6 dBFS, and reaching a -14 target from
+    /// there needs about +10 dB of gain that the true-peak ceiling will not
+    /// allow. The export then lands several LU short. That is correct behaviour
+    /// — holding at the ceiling beats clipping — but discovering it *after*
+    /// writing the file is the wrong order. The numbers are all knowable in
+    /// advance, so they are shown in advance.
+    public struct Preview: Equatable, Sendable {
+        public var lufs: Double
+        public var truePeak: Double
+        public var gainWanted: Double
+        public var gainPossible: Double
+        public var resultingLUFS: Double
+        public var heldBack: Bool
+        /// How far short of the target the ceiling forces it. Zero when the
+        /// target is reachable or there is no target.
+        public var shortfall: Double { Swift.max(0, gainWanted - gainPossible) }
+    }
+
+    public static func preview(_ samples: [Float], at sourceRate: Double,
+                               settings: Settings) -> Preview? {
+        guard let audio = try? resample(samples, from: sourceRate, to: settings.sampleRate)
+        else { return nil }
+        let lufs = Loudness.integratedLUFS(audio, rate: settings.sampleRate)
+        let peak = Loudness.truePeakDBTP(audio, rate: settings.sampleRate)
+        guard lufs.isFinite else { return nil }
+        guard let target = settings.targetLUFS else {
+            return Preview(lufs: lufs, truePeak: peak, gainWanted: 0, gainPossible: 0,
+                           resultingLUFS: lufs, heldBack: false)
+        }
+        let wanted = target - lufs
+        let possible = Swift.min(wanted, settings.truePeakCeiling - peak)
+        return Preview(lufs: lufs, truePeak: peak, gainWanted: wanted,
+                       gainPossible: possible, resultingLUFS: lufs + possible,
+                       heldBack: possible < wanted - 0.01)
+    }
+
     public static func resample(_ samples: [Float], from: Double, to: Double) throws -> [Float] {
         guard from != to else { return samples }
         guard let inFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: from,

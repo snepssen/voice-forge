@@ -23,12 +23,73 @@ final class Studio: ObservableObject {
     @Published private(set) var progress: Double = 0
     @Published var error: String?
     @Published var lastReceipt: Export.Receipt?
+    /// What exporting would do, computed after every render and whenever the
+    /// export settings change. Measured at the *export* rate, because loudness
+    /// and true peak both move with resampling.
+    @Published private(set) var exportPreview: Export.Preview?
     @Published var selected: Int?
 
     /// Rebuilt from `text` on every keystroke. Cheap — no model involved.
     var script: Script { Script.parse(text) }
 
     var voices: [String] { VoiceEngine.bundledVoices() }
+
+    /// Where the session is kept between launches.
+    ///
+    /// The calibration is the reason this exists. It costs about thirty seconds
+    /// of rendering to produce and it does not change unless the voice or the
+    /// pace does — losing it on quit meant paying for it again every launch, to
+    /// learn the same numbers. The script and the dials come along because
+    /// re-typing a script to hear one word differently is the same waste in a
+    /// smaller denomination.
+    private static var stateURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                            in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        let dir = base.appending(path: "Voice Forge")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appending(path: "session.json")
+    }
+
+    private struct Saved: Codable {
+        var text: String
+        var voice: String
+        var settings: SynthesisSettings
+        var export: Export.Settings
+        /// Kept per voice, because a calibration does not transfer between them.
+        var calibrations: [String: PauseCalibration]
+    }
+
+    private var calibrations: [String: PauseCalibration] = [:]
+    private var loading = false
+
+    func load() {
+        loading = true
+        defer { loading = false }
+        guard let data = try? Data(contentsOf: Self.stateURL),
+              let saved = try? JSONDecoder().decode(Saved.self, from: data) else { return }
+        text = saved.text
+        // Only if it is still bundled -- a saved voice that has since been
+        // removed must not leave the picker pointing at nothing.
+        if voices.contains(saved.voice) { voice = saved.voice }
+        settings = saved.settings
+        export = saved.export
+        calibrations = saved.calibrations
+        calibration = calibrations[voice]
+    }
+
+    func save() {
+        guard !loading else { return }
+        let saved = Saved(text: text, voice: voice, settings: settings,
+                          export: export, calibrations: calibrations)
+        try? JSONEncoder().encode(saved).write(to: Self.stateURL, options: .atomic)
+    }
+
+    /// Switching voice swaps in that voice's own calibration, or none.
+    func voiceChanged() {
+        calibration = calibrations[voice]
+        save()
+    }
 
     private var engines: [String: VoiceEngine] = [:]
     private var player: AVAudioPlayer?
@@ -84,6 +145,20 @@ final class Studio: ObservableObject {
             rendered = out
         } catch { self.error = error.localizedDescription }
         busy = nil; progress = 0
+        refreshPreview()
+    }
+
+    /// Recompute the export preview. Cheap relative to rendering, but it does
+    /// resample the whole take, so it is called on change rather than from a
+    /// view body.
+    func refreshPreview() {
+        let audio = assembled()
+        guard !audio.isEmpty else { exportPreview = nil; return }
+        let rate = sampleRate, settings = export
+        Task.detached { [weak self] in
+            let p = Export.preview(audio, at: rate, settings: settings)
+            await MainActor.run { self?.exportPreview = p }
+        }
     }
 
     /// Re-render one sentence. The model is stochastic, so this is a genuinely
@@ -99,6 +174,7 @@ final class Studio: ObservableObject {
             let samples = try e.renderSentence(old.text, settings: settings)
             let seconds = Audio.seconds(samples, at: e.sampleRate)
             let words = old.text.split(whereSeparator: \.isWhitespace).count
+            defer { refreshPreview() }
             rendered[index] = RenderedSentence(
                 id: old.id, text: old.text, samples: samples,
                 trailingGap: old.trailingGap, seconds: seconds,
@@ -119,6 +195,8 @@ final class Studio: ObservableObject {
                 }
             }.value
             calibration = cal
+            calibrations[v] = cal
+            save()
         } catch { self.error = error.localizedDescription }
         busy = nil; progress = 0
     }

@@ -13,12 +13,15 @@ public struct SynthesisSettings: Equatable, Sendable, Codable {
     /// Pace. The model's frame allocation is multiplied by this, so 1.1 is ten
     /// percent slower and 0.9 ten percent faster.
     ///
-    /// **The default is 1.0 and there is a measurement behind that.** Rendering
-    /// 60 corpus lines and comparing each against the reader's own recording of
-    /// the same text gave an articulation rate ratio of **1.0034** with pauses
-    /// excluded — the model says words at the reader's own rate to within a
-    /// third of one percent. Any departure from 1.0 is a stylistic choice, not
-    /// a correction, and the app says so rather than presenting it as tuning.
+    /// **1.0 means "as trained", and what that is worth depends on the voice.**
+    /// On `snepssen-rode` it is a measured likeness: 60 rendered lines against
+    /// the reader's own recordings of the same text gave an articulation rate
+    /// ratio of 1.0034, so the model says words at the reader's own rate to
+    /// within a third of one percent. `snepssen-suno` was fine-tuned on
+    /// generated audio instead, and on identical copy it reads **31% faster** —
+    /// 194 words a minute against 148. See `VoiceNotes`, which is where the
+    /// per-voice claim lives, precisely so that one voice's measurement cannot
+    /// be printed under the other.
     public var lengthScale: Double = 1.0
 
     /// How much the acoustic model varies between draws. Piper's default,
@@ -117,13 +120,8 @@ public struct SynthesisSettings: Equatable, Sendable, Codable {
     /// than buried as "reset".
     public static var voiceDefaults: SynthesisSettings { SynthesisSettings() }
 
-    /// What each dial is worth saying about it, for the panel that shows it.
-    public static func note(forLengthScale v: Double) -> String {
-        if abs(v - 1.0) < 0.005 {
-            return "The reader's own rate, measured to within 0.3%. A departure from here is a choice, not a correction."
-        }
-        let percent = Int(((v - 1.0) * 100).rounded())
-        return percent > 0 ? "\(percent)% slower than the reader speaks."
-                           : "\(-percent)% faster than the reader speaks."
-    }
+    // The pace note lives in `VoiceNotes`, not here. It has to name the voice
+    // it was measured on: the 0.3% figure is real but was measured on
+    // snepssen-rode, and snepssen-suno reads 31% faster on identical copy.
+    // Printing one voice's measurement under the other was false.
 }

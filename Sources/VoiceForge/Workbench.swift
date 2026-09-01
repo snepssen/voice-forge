@@ -13,6 +13,10 @@ struct Workbench: View {
             controls.frame(minWidth: 340, idealWidth: 380, maxWidth: 460)
         }
         .background(Monokai.bg)
+        .task { studio.load() }
+        .onChange(of: studio.voice) { _, _ in studio.voiceChanged() }
+        .onChange(of: studio.settings) { _, _ in studio.save() }
+        .onChange(of: studio.text) { _, _ in studio.save() }
         .toolbar { toolbar }
         .fileExporter(isPresented: $exporting,
                       document: WAVDocument(),
@@ -88,7 +92,12 @@ struct Workbench: View {
                     ForEach(studio.voices, id: \.self) { Text($0).tag($0) }
                 }
                 .pickerStyle(.segmented).labelsHidden()
-                Text("The same speaker, fine-tuned on two different recordings. Rode is the closer likeness; Suno is the deeper one. Switching re-renders nothing on its own — press Render.")
+                if let note = VoiceNotes.note(studio.voice) {
+                    Text(note.summary)
+                        .font(.caption).foregroundStyle(Monokai.comment)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text("The same speaker either way. Switching re-renders nothing on its own — press Render.")
                     .font(.caption).foregroundStyle(Monokai.comment)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -106,9 +115,11 @@ struct Workbench: View {
                 Stat("length", String(format: "%.1fs", studio.totalSeconds))
                 Stat("speech", String(format: "%.1fs", studio.spokenSeconds))
                 Stat("silence", String(format: "%.1fs", studio.silentSeconds))
-                Stat("pace", String(format: "%.0f wpm", studio.wordsPerMinute))
+                Stat("pace", String(format: "%.0f wpm", studio.wordsPerMinute),
+                     note: paceNote)
                 Stat("loudness", studio.takeLUFS.isFinite
-                     ? String(format: "%.1f LUFS", studio.takeLUFS) : "—")
+                     ? String(format: "%.1f LUFS", studio.takeLUFS) : "—",
+                     note: studio.takeLUFS.isFinite ? "at the model's rate" : nil)
             }
             Divider().overlay(Monokai.inset)
             ForEach(studio.rendered, id: \.id) { r in
@@ -116,6 +127,17 @@ struct Workbench: View {
                     .onTapGesture { studio.selected = studio.selected == r.id ? nil : r.id }
             }
         }
+    }
+
+    /// Voiceover reads sit around 150 wpm; audiobooks nearer 155; anything
+    /// past 180 is a fast read. Said as orientation, not as a rule -- there is
+    /// nothing wrong with a fast read, but it is worth knowing you have one.
+    private var paceNote: String? {
+        let wpm = studio.wordsPerMinute
+        guard wpm > 0 else { return nil }
+        if wpm > 185 { return "a fast read; 150 is typical" }
+        if wpm < 120 { return "a slow read; 150 is typical" }
+        return "around the usual 150"
     }
 
     private var timing: String {
@@ -200,7 +222,7 @@ struct Workbench: View {
         Panel(title: "The model") {
             Dial(label: "Pace", value: $studio.settings.lengthScale,
                  range: SynthesisSettings.lengthScaleRange, step: 0.01, format: "%.2f",
-                 note: SynthesisSettings.note(forLengthScale: studio.settings.lengthScale),
+                 note: VoiceNotes.paceNote(voice: studio.voice, lengthScale: studio.settings.lengthScale),
                  reference: 1.0)
             Dial(label: "Variation", value: $studio.settings.noiseScale,
                  range: SynthesisSettings.noiseScaleRange, step: 0.01, format: "%.3f",
@@ -250,7 +272,35 @@ struct Workbench: View {
                 Text(t.note).font(.caption).foregroundStyle(Monokai.comment)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let p = studio.exportPreview { preview(p) }
             if let r = studio.lastReceipt { receipt(r) }
+        }
+        .onChange(of: studio.export) { _, _ in studio.refreshPreview(); studio.save() }
+    }
+
+    /// What exporting will do, before it does it.
+    ///
+    /// Reaching a streaming target from a single dry voice usually needs about
+    /// +10 dB, and the true-peak ceiling will not allow it -- so the export
+    /// lands short. Holding at the ceiling is the right behaviour, but finding
+    /// out afterwards is the wrong order, and every number involved is knowable
+    /// in advance.
+    private func preview(_ p: Export.Preview) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Divider().overlay(Monokai.inset)
+            HStack(spacing: 14) {
+                Stat("as rendered", String(format: "%.1f LUFS", p.lufs))
+                Stat("true peak", String(format: "%.1f dBTP", p.truePeak))
+                Stat("on export", String(format: "%.1f LUFS", p.resultingLUFS))
+            }
+            if p.heldBack {
+                Text(String(format: "%.1f dB short of the target: the true-peak ceiling stops the gain first. A dry voice with hard consonants and real silences cannot reach a streaming target on gain alone — that needs compression, which this app does not do. The file will be correct, just quieter.", p.shortfall))
+                    .font(.caption).foregroundStyle(Monokai.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if studio.export.targetLUFS != nil {
+                Text("The target is reachable on gain alone.")
+                    .font(.caption).foregroundStyle(Monokai.green)
+            }
         }
     }
 
@@ -276,12 +326,15 @@ struct Workbench: View {
 }
 
 private struct Stat: View {
-    var label: String, value: String
-    init(_ l: String, _ v: String) { label = l; value = v }
+    var label: String, value: String, note: String?
+    init(_ l: String, _ v: String, note: String? = nil) { label = l; value = v; self.note = note }
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(value).monospacedDigit().foregroundStyle(Monokai.fg)
             Text(label).font(.caption2).foregroundStyle(Monokai.comment)
+            if let note {
+                Text(note).font(.caption2).foregroundStyle(Monokai.comment.opacity(0.75))
+            }
         }
     }
 }
