@@ -1,0 +1,193 @@
+/*
+ * Monokai, and the warm light companion, exactly the values the Mac build uses.
+ *
+ * Drawn here rather than delegated to a toolkit, which is the whole reason this
+ * is Electron: GTK and Qt would render *their* idea of a control and the app
+ * would look like a different app on each platform. Everything below is ours,
+ * so what one person sees is what everybody sees.
+ *
+ * The light side is not an inversion. Monokai's character is its hues against a
+ * warm ground, so the ground stays warm and the hues darken until they carry on
+ * paper — a straight inversion gives the washed-out pastel look that makes a
+ * light theme feel like an afterthought.
+ */
+:root {
+  --bg: #272822;  --panel: #31322B;  --inset: #3E3D32;
+  --fg: #F8F8F2;  --comment: #75715E;
+  --yellow: #E6DB74; --orange: #FD971F; --red: #F92672;
+  --green: #A6E22E; --purple: #AE81FF; --cyan: #66D9EF;
+  --radius: 8px;
+}
+:root[data-theme="light"] {
+  --bg: #FAF8F0;  --panel: #F1EEE1;  --inset: #E2DECD;
+  --fg: #272822;  --comment: #8A8672;
+  --yellow: #8A7500; --orange: #B35C00; --red: #C2185B;
+  --green: #4F7A00; --purple: #6A3FD4; --cyan: #00697F;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  /* The platform's own text face, in the order each platform prefers. Nothing
+     is bundled: a downloaded webfont would be one more thing reaching out. */
+  font: 13px/1.45 -apple-system, "SF Pro Text", "Segoe UI Variable Text",
+        "Segoe UI", Inter, Ubuntu, Cantarell, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+
+/* ---------------------------------------------------------------- chrome */
+#titlebar {
+  height: 38px; display: flex; align-items: center; gap: 8px;
+  padding: 0 12px; -webkit-app-region: drag;
+  border-bottom: 1px solid var(--inset); background: var(--bg);
+}
+body[data-mac="true"] #titlebar { padding-left: 82px; }  /* clear the lights */
+#titlebar .title { font-weight: 600; letter-spacing: .2px; }
+#titlebar .spacer { flex: 1; }
+#titlebar button, #titlebar .seg { -webkit-app-region: no-drag; }
+
+.toolbtn {
+  background: transparent; border: 1px solid transparent; border-radius: 6px;
+  padding: 4px 9px; cursor: pointer; color: var(--fg);
+}
+.toolbtn:hover:not(:disabled) { background: var(--inset); }
+.toolbtn:disabled { opacity: .35; cursor: default; }
+.toolbtn.accent { color: var(--purple); }
+
+.seg { display: inline-flex; background: var(--inset); border-radius: 7px; padding: 2px; }
+.seg button {
+  background: transparent; border: 0; border-radius: 5px; padding: 3px 10px;
+  cursor: pointer; color: var(--fg); opacity: .7;
+}
+.seg button[aria-pressed="true"] { background: var(--purple); color: #fff; opacity: 1; }
+
+/* ---------------------------------------------------------------- layout */
+#main { display: flex; height: calc(100% - 38px); }
+#left, #right { overflow-y: auto; padding: 14px; }
+#left { flex: 1 1 auto; min-width: 420px; }
+#right { flex: 0 0 400px; border-left: 1px solid var(--inset); }
+
+.panel {
+  background: var(--panel); border-radius: var(--radius);
+  padding: 13px; margin-bottom: 14px;
+}
+.panel h2 {
+  margin: 0 0 10px; font-size: 13px; font-weight: 600;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.panel h2 .trailing { margin-left: auto; font-weight: 400; color: var(--comment); font-size: 11px; }
+.note { color: var(--comment); font-size: 11px; line-height: 1.4; margin: 3px 0 0; }
+.divider { height: 1px; background: var(--inset); margin: 10px 0; }
+
+textarea#script {
+  width: 100%; min-height: 190px; resize: vertical;
+  background: var(--inset); color: var(--fg);
+  border: 0; border-radius: 6px; padding: 10px;
+  line-height: 1.55; user-select: text;
+}
+textarea#script:focus { outline: 1px solid var(--purple); }
+
+/* ----------------------------------------------------------------- dials */
+.dial { margin-bottom: 12px; }
+.dial .row { display: flex; align-items: baseline; gap: 8px; }
+.dial .row .val {
+  margin-left: auto; font-variant-numeric: tabular-nums; color: var(--yellow);
+}
+.dial .row .val.ref { color: var(--cyan); }
+.dial .revert {
+  background: none; border: 0; color: var(--comment); cursor: pointer; padding: 0 2px;
+}
+input[type=range] {
+  width: 100%; margin: 5px 0 2px; accent-color: var(--purple);
+  background: transparent;
+}
+.stepper { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+.stepper button {
+  width: 20px; height: 18px; border-radius: 4px; border: 1px solid var(--inset);
+  background: var(--inset); color: var(--fg); cursor: pointer; line-height: 1;
+}
+select {
+  background: var(--inset); border: 0; border-radius: 6px;
+  padding: 4px 8px; color: var(--purple); cursor: pointer;
+}
+label.check { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+input[type=checkbox] { accent-color: var(--purple); width: 14px; height: 14px; }
+
+/* ------------------------------------------------------------- the take */
+.stats { display: flex; gap: 16px; flex-wrap: wrap; }
+.stat .v { font-variant-numeric: tabular-nums; }
+.stat .k { font-size: 10px; color: var(--comment); }
+.sentence { padding: 5px 0; border-bottom: 1px solid var(--inset); cursor: pointer; }
+.sentence:last-child { border-bottom: 0; }
+.sentence .top { display: flex; gap: 10px; align-items: baseline; }
+.sentence .secs { margin-left: auto; color: var(--comment); font-size: 11px;
+                  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sentence[data-selected="true"] .text { color: var(--purple); }
+.sentence .detail {
+  display: flex; gap: 12px; align-items: center; margin-top: 4px;
+  color: var(--comment); font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.sentence .detail button {
+  border: 1px solid var(--inset); background: var(--inset); color: var(--fg);
+  border-radius: 5px; padding: 2px 8px; cursor: pointer;
+}
+
+/* Layout helpers, as classes rather than style attributes: the page runs under
+   `style-src 'self'` and an inline style is refused, which is the policy doing
+   its job. Loosening it to `unsafe-inline` to save six attributes would trade a
+   real guarantee for a small convenience. */
+.actions { display: flex; gap: 8px; align-items: center; }
+.grow { flex: 1; }
+.wide { width: 100%; }
+.push { margin-left: auto; }
+.iconbtn { background: none; border: 0; cursor: pointer; color: var(--comment); padding: 0 4px; }
+.iconbtn:hover { color: var(--fg); }
+
+.good { color: var(--green); } .warn { color: var(--orange); } .bad { color: var(--red); }
+
+/* -------------------------------------------------------------- overlay */
+#sheet {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  display: none; align-items: center; justify-content: center;
+}
+#sheet[data-open="true"] { display: flex; }
+#sheet .card {
+  background: var(--bg); border-radius: 12px; width: min(860px, 92vw);
+  height: min(620px, 88vh); display: flex; flex-direction: column;
+  box-shadow: 0 18px 60px rgba(0,0,0,.4);
+}
+#sheet header, #sheet footer { padding: 14px; }
+#sheet header { display: flex; align-items: flex-start; gap: 12px; }
+#sheet header h2 { margin: 0 0 2px; font-size: 16px; font-weight: 600; }
+#sheet .go {
+  margin-left: auto; background: var(--purple); color: #fff; border: 0;
+  border-radius: 6px; padding: 5px 14px; cursor: pointer;
+}
+#sheet .headings, .entry { display: grid; gap: 10px; align-items: center;
+  grid-template-columns: 150px 130px 1fr 130px 34px 24px; padding: 6px 14px; }
+#sheet .headings { color: var(--comment); font-size: 11px; background: var(--panel); }
+#entries { flex: 1; overflow-y: auto; }
+.entry { border-bottom: 1px solid var(--inset); }
+.entry .says { color: var(--comment); font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; }
+.entry input[type=text] {
+  background: var(--inset); border: 0; border-radius: 5px; padding: 5px 7px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  user-select: text;
+}
+.entry .status { grid-column: 1 / -1; font-size: 11px; margin-top: -2px; }
+#suggest { border-top: 1px solid var(--inset); padding: 12px 14px; max-height: 108px; overflow-y: auto; }
+.chip {
+  display: inline-block; background: var(--inset); border: 0; border-radius: 999px;
+  padding: 3px 9px; margin: 0 5px 5px 0; cursor: pointer; color: var(--fg); font-size: 11px;
+}
+#sheet footer { display: flex; gap: 8px; align-items: center; border-top: 1px solid var(--inset); }
+#sheet footer input {
+  background: var(--inset); border: 0; border-radius: 6px; padding: 5px 9px; width: 200px;
+  user-select: text;
+}
+#sheet footer .count { margin-left: auto; color: var(--comment); font-size: 11px; }

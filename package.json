@@ -6,11 +6,12 @@
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
-    "check": "tsc && node out/check/run.js",
-    "build": "tsc",
+    "check": "npm run build && node out/check/run.js",
+    "build": "tsc && node scripts/copy-static.mjs",
     "start": "npm run build && electron .",
     "dist": "npm run build && electron-builder",
-    "parity": "tsc && node out/check/engine-parity.js"
+    "parity": "npm run build && node out/check/engine-parity.js",
+    "smoke": "npm run build && node out/check/smoke.js"
   },
   "dependencies": {
     "onnxruntime-node": "^1.29.0",

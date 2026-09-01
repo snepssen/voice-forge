@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<!-- No remote anything. The page is local, stays local, and this says so to the
+     engine as well as to the reader. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; media-src blob:; img-src 'self' data:;">
+<title>Voice Forge</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="titlebar">
+  <span class="title">Voice Forge</span>
+  <span class="spacer"></span>
+  <button class="toolbtn" id="btnRender" title="Render every sentence">Render</button>
+  <button class="toolbtn" id="btnPlay" disabled>Play</button>
+  <button class="toolbtn" id="btnStop" disabled>Stop</button>
+  <span class="seg" id="appearance">
+    <button data-v="system" title="Follow the system">◐</button>
+    <button data-v="light"  title="Light">☀</button>
+    <button data-v="dark"   title="Dark">☾</button>
+  </span>
+  <button class="toolbtn" id="btnDict" title="How this voice says particular words">Dictionary</button>
+  <button class="toolbtn accent" id="btnExport" disabled>Export</button>
+</div>
+
+<div id="main">
+  <div id="left">
+    <section class="panel">
+      <h2>Voice <span class="trailing" id="voiceRate"></span></h2>
+      <span class="seg" id="voicePicker"></span>
+      <p class="note" id="voiceNote"></p>
+      <div id="voiceRejects"></div>
+      <div id="installedVoices"></div>
+      <div class="divider"></div>
+      <div class="actions">
+        <button class="toolbtn" id="btnAddVoice">Add a voice…</button>
+        <button class="toolbtn" id="btnVoicesFolder">Voices folder</button>
+        <span class="grow"></span>
+        <button class="toolbtn accent" id="btnTraining">How to train one</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Script <span class="trailing" id="scriptSummary"></span></h2>
+      <textarea id="script" spellcheck="false"></textarea>
+      <p class="note">A blank line starts a new paragraph. Each sentence becomes one call to the model — never more, never less.</p>
+      <div class="divider"></div>
+      <label class="check"><input type="checkbox" id="spokenCurrency"> Read currency the way it is said</label>
+      <p class="note" id="currencyNote"></p>
+    </section>
+
+    <section class="panel" id="takePanel" hidden>
+      <h2>The take <span class="trailing" id="takeTrailing"></span></h2>
+      <div class="stats" id="takeStats"></div>
+      <div class="divider"></div>
+      <div id="sentences"></div>
+    </section>
+
+    <section class="panel bad" id="errorPanel" hidden></section>
+  </div>
+
+  <div id="right">
+    <section class="panel">
+      <h2>Pauses</h2>
+      <div id="pauseDials"></div>
+      <div class="divider"></div>
+      <div class="dial">
+        <div class="row"><span>Room at a comma</span>
+          <span class="stepper"><button data-step="clausePads:-1">−</button>
+          <span class="val" id="clausePadsVal">0</span>
+          <button data-step="clausePads:1">+</button></span>
+        </div>
+        <p class="note" id="clauseNote">Padding phonemes given to the model at , ; : and —. Measure the voice to see what they buy.</p>
+      </div>
+      <div id="calibration"></div>
+      <button class="toolbtn accent wide" id="btnCalibrate">Measure this voice</button>
+    </section>
+
+    <section class="panel">
+      <h2>The model</h2>
+      <div id="modelDials"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Endings</h2>
+      <div class="dial">
+        <div class="row"><span>Trailing padding</span>
+          <span class="stepper"><button data-step="trailingPads:-1">−</button>
+          <span class="val" id="trailingPadsVal">2</span>
+          <button data-step="trailingPads:1">+</button></span>
+        </div>
+        <p class="note">2 is a measured optimum, not a floor. These voices end on breath rather than silence; padding gives the decay somewhere to land. Three is worse than two.</p>
+      </div>
+      <label class="check"><input type="checkbox" id="dropFinalFullStop"> Drop the final full stop</label>
+      <p class="note">The voice learned “the recording stops here” at the full stop and reproduces whatever sat at that cut — heard as a phantom consonant after the words end. ? and ! are always kept.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Export</h2>
+      <div class="dial"><div class="row"><span>Rate</span>
+        <select id="exRate" class="push">
+          <option value="22050">22,050 Hz · the model’s own</option>
+          <option value="44100">44,100 Hz</option>
+          <option value="48000" selected>48,000 Hz</option>
+        </select></div></div>
+      <div class="dial"><div class="row"><span>Depth</span>
+        <select id="exDepth" class="push">
+          <option value="16" selected>16-bit</option><option value="24">24-bit</option>
+        </select></div>
+        <p class="note" id="depthNote"></p></div>
+      <div class="dial"><div class="row"><span>Loudness</span>
+        <select id="exLufs" class="push"></select></div>
+        <p class="note" id="lufsNote"></p></div>
+      <div id="exportPreview"></div>
+      <div id="exportReceipt"></div>
+    </section>
+  </div>
+</div>
+
+<div id="sheet">
+  <div class="card">
+    <header>
+      <div>
+        <h2>Pronunciation</h2>
+        <p class="note">What you type is handed straight to the model — it speaks IPA, so this is not a translation step.</p>
+      </div>
+      <button class="go" id="dictDone">Done</button>
+    </header>
+    <div class="headings"><span>Word</span><span>Says it as</span><span>Say it as instead</span><span>Where</span><span></span><span></span></div>
+    <div id="entries"></div>
+    <div id="suggest"></div>
+    <footer>
+      <input id="newWord" placeholder="Add a word">
+      <button class="toolbtn" id="btnAddWord">Add</button>
+      <span class="count" id="dictCount"></span>
+    </footer>
+  </div>
+</div>
+
+<audio id="player"></audio>
+<script type="module" src="app.js"></script>
+</body>
+</html>
