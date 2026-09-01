@@ -50,6 +50,13 @@ public struct RenderedSentence: Sendable {
     public var peakDBFS: Double
     /// Words per minute over this sentence alone, silence included.
     public var wordsPerMinute: Double
+
+    public init(id: Int, text: String, samples: [Float], trailingGap: Double,
+                seconds: Double, peakDBFS: Double, wordsPerMinute: Double) {
+        self.id = id; self.text = text; self.samples = samples
+        self.trailingGap = trailingGap; self.seconds = seconds
+        self.peakDBFS = peakDBFS; self.wordsPerMinute = wordsPerMinute
+    }
 }
 
 /// The synthesiser, with its dials on the outside.
