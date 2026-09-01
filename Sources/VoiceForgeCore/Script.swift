@@ -84,21 +84,87 @@ public struct Script: Equatable, Sendable {
         return Script(sentences: out)
     }
 
+    /// Words that end in a full stop without ending a sentence.
+    ///
+    /// Found by stress-testing rather than imagined. "Dr. Smith paid $4.99 on
+    /// Jan. 3rd, i.e. last Tuesday" was being cut into four utterances — `Dr.`
+    /// alone was a 0.63-second "sentence" — and each fragment then got its own
+    /// inference call, its own sentence-final fall and its own gap. It did not
+    /// crash; it just read like a broken machine.
+    static let abbreviations: Set<String> = [
+        "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "mt", "rev", "hon",
+        "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
+        "mon", "tue", "tues", "wed", "thu", "thur", "thurs", "fri", "sat", "sun",
+        "vs", "etc", "approx", "est", "fig", "vol", "no", "ed", "eds", "pp", "ch",
+        "inc", "ltd", "co", "corp", "dept", "univ", "min", "max", "avg",
+        "ave", "blvd", "rd", "apt",
+    ]
+
+    /// Whether a terminator at `i` really ends a sentence.
+    ///
+    /// `!` and `?` always do. A full stop is the hard one, and three things
+    /// stop it:
+    ///
+    ///  · **a decimal point** — `3.14`, `$4.99`, `3.5%`. Digits either side.
+    ///  · **an abbreviation** — `Dr.`, `Jan.`, `etc.` A list, because there is
+    ///    no rule; `Dr` is not a sentence and `Mr` is not either, and no amount
+    ///    of cleverness derives that from the characters.
+    ///  · **an initialism** — `U.S.`, `i.e.`, `a.m.` The letter before the stop
+    ///    stands alone, which is what makes it a letter rather than a word.
+    ///
+    /// A "next word is lowercase, so this cannot be a sentence start" rule was
+    /// tried first and **removed**. It fixed `U.K. disagree` for the wrong
+    /// reason and broke informal writing in exchange: "ALL CAPS SHOUTING.
+    /// mixed CaSe. hyphenated-words" merged into one utterance, and people
+    /// write scripts in lowercase all the time. The two tests above do the same
+    /// work without that cost.
+    ///
+    /// Where it is genuinely ambiguous — "I moved to the U.S. Then I left" —
+    /// this joins rather than splits. The costs are not symmetric: joining two
+    /// sentences gives one longer inference call, which the model handles;
+    /// splitting one gives a false full stop, a falling intonation in the
+    /// middle of a thought, and an inserted gap.
+    static func endsSentence(_ chars: [Character], at i: Int) -> Bool {
+        let ch = chars[i]
+        guard ch == "." || ch == "!" || ch == "?" else { return false }
+
+        // The next thing that is not a space, and whether a break followed.
+        var j = i + 1
+        while j < chars.count, chars[j] == " " { j += 1 }
+        let sawSpace = j > i + 1 || j >= chars.count || chars[j] == "\n"
+        let next: Character? = j < chars.count ? chars[j] : nil
+
+        // A terminator must be followed by whitespace or the end of the text.
+        guard sawSpace || next == nil else {
+            // `3.14` and `example.com` — no space, so not a sentence end.
+            return false
+        }
+        guard ch == "." else { return true }
+
+        // The word immediately before the stop.
+        var k = i - 1
+        var word = ""
+        while k >= 0, chars[k].isLetter { word.insert(chars[k], at: word.startIndex); k -= 1 }
+
+        // An initialism: a lone letter whose own stop is right behind it.
+        // `U.S.`, `i.e.`, `a.m.` The earlier stop in each of those never
+        // splits either, because nothing follows it but a letter.
+        if word.count == 1, k >= 0, chars[k] == "." { return false }
+
+        if abbreviations.contains(word.lowercased()) { return false }
+        return true
+    }
+
     static func splitSentences(_ text: String) -> [String] {
         var out: [String] = []
         var current = ""
         let chars = Array(text)
         for (i, ch) in chars.enumerated() {
             current.append(ch)
-            guard ch == "." || ch == "!" || ch == "?" else { continue }
-            let next = i + 1 < chars.count ? chars[i + 1] : " "
-            // A full stop between digits is a decimal point.
-            if ch == ".", next.isNumber { continue }
-            if next == " " || next == "\n" || i + 1 == chars.count {
-                let t = current.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !t.isEmpty { out.append(t) }
-                current = ""
-            }
+            guard endsSentence(chars, at: i) else { continue }
+            let t = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty { out.append(t) }
+            current = ""
         }
         let tail = current.trimmingCharacters(in: .whitespacesAndNewlines)
         if !tail.isEmpty { out.append(tail) }

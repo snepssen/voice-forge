@@ -36,7 +36,12 @@ case "voices":
 
 case "say":
     guard args.count >= 3 else { fail("usage: vfrender say <voice> \"text\" [out.wav]") }
-    let voice = args[1], text = args[2]
+    let voice = args[1]
+    // A path is read as a file, so a large or awkward script does not have to
+    // survive shell quoting.
+    let text = FileManager.default.fileExists(atPath: args[2])
+        ? ((try? String(contentsOfFile: args[2], encoding: .utf8)) ?? args[2])
+        : args[2]
     let out = URL(fileURLWithPath: args.count > 3 ? args[3] : "take.wav")
     let engine = try VoiceEngine(voice: voice)
     let script = Script.parse(text)

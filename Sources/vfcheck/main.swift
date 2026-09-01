@@ -60,6 +60,39 @@ do {
     let hyphen = Script.parse("A well-made thing.")
     c.equal(hyphen.sentences[0].clauseBreaks, 0, "a hyphen is not")
     c.equal(Script.parse("").sentences.count, 0, "empty text is an empty script")
+
+    // Abbreviations. Found by stress-testing a long script: "Dr. Smith paid
+    // $4.99 on Jan. 3rd, i.e. last Tuesday" came out as four utterances, `Dr.`
+    // alone being a 0.63-second "sentence" with its own falling intonation and
+    // its own gap. It never crashed. It just read like a broken machine.
+    let abbrev = Script.parse("Dr. Smith paid $4.99 on Jan. 3rd, i.e. last Tuesday, at 3.5% interest.")
+    c.equal(abbrev.sentences.count, 1, "a title, a month, a Latin abbreviation and two decimals are one sentence")
+    let initialism = Script.parse("The U.S. and the U.K. disagree about this.")
+    c.equal(initialism.sentences.count, 1, "and so are two initialisms")
+    c.equal(Script.parse("Call at 9 a.m. or 5 p.m. tomorrow.").sentences.count, 1,
+            "and times")
+    c.equal(Script.parse("Mr. Smith, Mrs. Jones and Prof. Hall met.").sentences.count, 1,
+            "several titles in one sentence")
+
+    // The rule must not swallow real sentence ends. A "next word is lowercase"
+    // test was tried first and did exactly that -- it merged "ALL CAPS
+    // SHOUTING. mixed CaSe." into one utterance, and people write scripts in
+    // lowercase all the time.
+    c.equal(Script.parse("ALL CAPS SHOUTING. mixed CaSe. and more.").sentences.count, 3,
+            "informal lowercase sentences still split")
+    c.equal(Script.parse("one. two. three.").sentences.count, 3,
+            "a lowercase script is not one long sentence")
+    c.equal(Script.parse("It ended. Then it began.").sentences.count, 2,
+            "an ordinary pair still splits")
+    c.equal(Script.parse("Really? Yes! Fine.").sentences.count, 3,
+            "question and exclamation marks always end a sentence")
+
+    // A URL and an email have stops with no space after them.
+    c.equal(Script.parse("Visit https://example.com/path?q=1 or write to a@b.com today.")
+                .sentences.count, 1,
+            "a URL and an email address are not sentence boundaries")
+    c.equal(Script.parse("Pi is 3.14159 and e is 2.71828.").sentences.count, 1,
+            "decimals are not either")
 }
 
 // ------------------------------------------------------------------ settings
