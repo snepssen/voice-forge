@@ -143,8 +143,12 @@ case "probe":
 case "phonemes":
     // What espeak actually produces, and what of it the model can hear.
     let engine = try VoiceEngine(voice: args[1])
+    var probeSettings = SynthesisSettings()
+    if ProcessInfo.processInfo.environment["VF_NO_CURRENCY"] != nil {
+        probeSettings.spokenCurrency = false
+    }
     for text in args.dropFirst(2) {
-        let ipa = try engine.phonemesFor(text)
+        let ipa = engine.phonemesFor(text, settings: probeSettings)
         let (kept, dropped) = engine.vocabularyCheck(ipa)
         print("\(text)")
         print("  IPA:     \(ipa)")

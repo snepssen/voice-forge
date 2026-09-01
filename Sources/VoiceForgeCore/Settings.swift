@@ -88,6 +88,14 @@ public struct SynthesisSettings: Equatable, Sendable, Codable {
     /// intonation worth keeping.
     public var dropFinalFullStop: Bool = true
 
+    /// Read `$4.99` as "four dollars ninety-nine" rather than as espeak's
+    /// "dollar four point nine nine".
+    ///
+    /// On by default because the alternative is wrong in every currency, and
+    /// switchable because it is the one place this app rewrites the words it
+    /// was given. See `Script.spokenCurrency`.
+    public var spokenCurrency: Bool = true
+
     public init() {}
 
     // MARK: ranges

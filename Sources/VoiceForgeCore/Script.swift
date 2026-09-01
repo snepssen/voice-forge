@@ -207,5 +207,94 @@ public struct Script: Equatable, Sendable {
         return out
     }
 
+    /// Currency symbols and the words they are actually spoken as.
+    ///
+    /// espeak reads the symbol first and the number after it, the way it is
+    /// written: `$4.99` becomes "dollar four point nine nine", and every
+    /// currency behaves the same way — "pound four point nine nine", "euros
+    /// four point nine nine", "yen four hundred". Nobody says that. English
+    /// puts the amount first and the currency after it, and treats the part
+    /// after the point as a second number rather than as decimals.
+    ///
+    /// Yen, won and lira do not take a plural s.
+    public static let currencies: [(symbol: Character, singular: String, plural: String)] = [
+        ("$", "dollar", "dollars"),
+        ("£", "pound", "pounds"),
+        ("€", "euro", "euros"),
+        ("¥", "yen", "yen"),
+        ("₩", "won", "won"),
+        ("₺", "lira", "lira"),
+        ("₽", "ruble", "rubles"),
+        ("₹", "rupee", "rupees"),
+        ("¢", "cent", "cents"),
+    ]
+
+    /// Rewrite written currency into the order it is spoken.
+    ///
+    ///     $4.99   ->  4 dollars 99          £4.50  ->  4 pounds 50
+    ///     $1      ->  1 dollar              ¥400   ->  400 yen
+    ///     $4.00   ->  4 dollars             $4.05  ->  4 dollars oh 5
+    ///     $1,250  ->  1,250 dollars
+    ///
+    /// **This is the one place the app rewrites the listener's words, and it
+    /// is switchable for exactly that reason.** Everything else here refuses
+    /// to: the respelling table Gateway Forge carries was removed on the
+    /// principle that a general tool must not quietly change what it was
+    /// given. This earns its exception by being wrong otherwise in every case,
+    /// in every currency, and by being visible and off-able rather than
+    /// hidden.
+    ///
+    /// A symbol not followed by a digit is left alone, so `$` in a code sample
+    /// or `€` used as a bare noun survives untouched.
+    public static func spokenCurrency(_ text: String) -> String {
+        guard text.contains(where: { c in currencies.contains { $0.symbol == c } }) else {
+            return text
+        }
+        let chars = Array(text)
+        var out = ""
+        var i = 0
+        while i < chars.count {
+            guard let money = currencies.first(where: { $0.symbol == chars[i] }) else {
+                out.append(chars[i]); i += 1; continue
+            }
+            // The amount: digits, with commas allowed inside.
+            var j = i + 1
+            var whole = ""
+            while j < chars.count, chars[j].isNumber || (chars[j] == "," && j + 1 < chars.count && chars[j + 1].isNumber) {
+                whole.append(chars[j]); j += 1
+            }
+            guard !whole.isEmpty else { out.append(chars[i]); i += 1; continue }
+
+            // A point followed by digits is either a minor unit or part of the
+            // number. Exactly two digits is cents; anything else is a decimal
+            // and belongs to the amount.
+            //
+            // Getting this wrong is not cosmetic: leaving the tail in place
+            // produced `$3.14159` -> "3 dollars.14159", which reads as "three
+            // dollars point one four one five nine" -- the currency word
+            // wedged into the middle of its own number.
+            var minor: String?
+            if j < chars.count, chars[j] == "." {
+                var k = j + 1
+                var digits = ""
+                while k < chars.count, chars[k].isNumber { digits.append(chars[k]); k += 1 }
+                if digits.count == 2 {
+                    minor = digits; j = k
+                } else if !digits.isEmpty {
+                    whole += "." + digits; j = k
+                }
+            }
+
+            let isOne = whole.replacingOccurrences(of: ",", with: "") == "1"
+            out += whole + " " + (isOne ? money.singular : money.plural)
+            if let minor, minor != "00" {
+                // "oh five", not "zero five" -- it is how a price is read.
+                out += minor.hasPrefix("0") ? " oh \(minor.dropFirst())" : " \(minor)"
+            }
+            i = j
+        }
+        return out
+    }
+
     public init(sentences: [Sentence]) { self.sentences = sentences }
 }

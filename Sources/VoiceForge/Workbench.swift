@@ -80,6 +80,12 @@ struct Workbench: View {
                     Text("A blank line starts a new paragraph. Each sentence becomes one call to the model — never more, never less.")
                         .font(.caption).foregroundStyle(Monokai.comment)
                         .fixedSize(horizontal: false, vertical: true)
+                    Divider().overlay(Monokai.inset)
+                    Toggle("Read currency the way it is said", isOn: $studio.settings.spokenCurrency)
+                        .foregroundStyle(Monokai.fg)
+                    Text(currencyNote)
+                        .font(.caption).foregroundStyle(Monokai.comment)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let error = studio.error {
                     Text(error).font(.caption).foregroundStyle(Monokai.red)
@@ -199,6 +205,25 @@ struct Workbench: View {
         } else {
             NSWorkspace.shared.open(URL(fileURLWithPath: "TRAINING.md"))
         }
+    }
+
+    /// Shown with a live example from the script where there is one, because
+    /// this is the only setting that changes the words, and it should be
+    /// possible to see exactly what it does rather than trust the label.
+    private var currencyNote: String {
+        let example = studio.script.sentences.lazy
+            .map(\.text)
+            .first { t in Script.currencies.contains { t.contains($0.symbol) } }
+        guard studio.settings.spokenCurrency else {
+            return "Off: espeak reads the symbol first — $4.99 becomes “dollar four point nine nine”, and every currency does the same."
+        }
+        guard let example, let range = example.rangeOfCharacter(
+            from: CharacterSet(charactersIn: String(Script.currencies.map(\.symbol)))) else {
+            return "$4.99 is read “4 dollars 99”, not “dollar four point nine nine”. The only setting here that changes your words."
+        }
+        // Just the amount and a word either side, so the example is short.
+        let words = example[range.lowerBound...].split(separator: " ").prefix(2).joined(separator: " ")
+        return "“\(words)” → “\(Script.spokenCurrency(words))”. The only setting here that changes your words."
     }
 
     private var summary: String {

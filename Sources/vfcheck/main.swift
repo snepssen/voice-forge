@@ -111,6 +111,36 @@ do {
     // `hyphenated-words` together as one phoneme run. It must not be touched.
     c.equal(Script.spacedEmDashes("hyphenated-words"), "hyphenated-words",
             "a hyphen is not an em dash and is left alone")
+
+    // Currency. espeak reads the symbol first and the number after, in every
+    // currency: "dollar four point nine nine", "pound four point nine nine",
+    // "euros four point nine nine", "yen four hundred". Nobody says that.
+    c.equal(Script.spokenCurrency("It costs $4.99 today."), "It costs 4 dollars 99 today.",
+            "an amount is spoken before its currency")
+    c.equal(Script.spokenCurrency("$1"), "1 dollar", "one is singular")
+    c.equal(Script.spokenCurrency("$4"), "4 dollars", "and more than one is not")
+    c.equal(Script.spokenCurrency("$4.00"), "4 dollars", "a round amount drops its zeros")
+    c.equal(Script.spokenCurrency("$1.00"), "1 dollar", "and stays singular")
+    c.equal(Script.spokenCurrency("$1.50"), "1 dollar 50", "one and a half is still one dollar")
+    c.equal(Script.spokenCurrency("$4.05"), "4 dollars oh 5",
+            "a leading-zero minor part is read the way a price is read")
+    c.equal(Script.spokenCurrency("$1,250"), "1,250 dollars", "thousands separators survive")
+    c.equal(Script.spokenCurrency("£4.50"), "4 pounds 50", "pounds")
+    c.equal(Script.spokenCurrency("€4.99"), "4 euros 99", "euros")
+    c.equal(Script.spokenCurrency("¥400"), "400 yen", "yen takes no plural")
+    c.equal(Script.spokenCurrency("₩5000"), "5000 won", "nor does won")
+    c.equal(Script.spokenCurrency("₹4"), "4 rupees", "rupees do")
+    c.equal(Script.spokenCurrency("Pay $5 or £3, either way."), "Pay 5 dollars or 3 pounds, either way.",
+            "several in one sentence")
+
+    // A symbol that is not money must survive. `$` appears in code samples and
+    // shell prompts, and rewriting those would be the silent-rewriting problem
+    // this rule is otherwise careful to avoid.
+    c.equal(Script.spokenCurrency("Use $PATH and $HOME."), "Use $PATH and $HOME.",
+            "a symbol not followed by a digit is left alone")
+    c.equal(Script.spokenCurrency("costs money"), "costs money", "text with no symbol is untouched")
+    c.equal(Script.spokenCurrency("$3.14159"), "3.14159 dollars",
+            "more than two decimal places is not a minor unit")
 }
 
 // ------------------------------------------------------------------ settings

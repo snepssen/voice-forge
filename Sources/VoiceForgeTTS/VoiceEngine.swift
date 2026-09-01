@@ -190,7 +190,11 @@ public final class VoiceEngine: @unchecked Sendable {
     public func phonemes(for text: String, settings: SynthesisSettings,
                          dictionary: [PronunciationEntry] = [])
         -> (phonemes: String, applied: Set<String>) {
-        let base = (try? phonemizer.phonemize(text, dropFinalStop: settings.dropFinalFullStop)) ?? ""
+        // The one rewrite of the listener's words, and it is theirs to switch
+        // off. Applied before phonemizing rather than inside the phonemizer,
+        // so what the dictionary matches against is what was actually spoken.
+        let source = settings.spokenCurrency ? Script.spokenCurrency(text) : text
+        let base = (try? phonemizer.phonemize(source, dropFinalStop: settings.dropFinalFullStop)) ?? ""
         guard !dictionary.isEmpty else { return (base, []) }
         var defaults: [String: String] = [:]
         for entry in dictionary {
@@ -275,9 +279,18 @@ public final class VoiceEngine: @unchecked Sendable {
         }
     }
 
-    /// The IPA espeak produces for a piece of text.
-    public func phonemesFor(_ text: String, dropFinalStop: Bool = false) throws -> String {
-        try phonemizer.phonemize(text, dropFinalStop: dropFinalStop)
+    /// The IPA a piece of text will actually be spoken from.
+    ///
+    /// Routed through the same path the renderer uses, settings and all. It
+    /// used to call the phonemizer directly, which meant it reported what
+    /// espeak said rather than what the model would hear -- so with the
+    /// currency rule on it showed "dollar four point nine nine" for text the
+    /// renderer was correctly saying as "four dollars ninety-nine". A
+    /// diagnostic that disagrees with the thing it is diagnosing is worse than
+    /// no diagnostic.
+    public func phonemesFor(_ text: String,
+                            settings: SynthesisSettings = SynthesisSettings()) -> String {
+        phonemes(for: text, settings: settings).phonemes
     }
 
     /// Which symbols in a phoneme string the model actually knows.
