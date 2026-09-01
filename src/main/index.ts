@@ -59,6 +59,18 @@ function refuseToPhoneHome(): void {
 }
 refuseToPhoneHome();
 
+/**
+ * Where to write when it breaks.
+ *
+ * There is nothing automatic behind this — no report is sent, no identifier is
+ * collected. It is a person's contact details, put where somebody stuck can
+ * find them, which is the whole support surface this app has.
+ */
+const CONTACT = {
+  telegram: "https://t.me/REPLACE-ME",
+  email: "REPLACE-ME@example.com",
+} as const;
+
 let win: BrowserWindow | null = null;
 const engines = new Map<string, VoiceEngine>();
 let lastRendered: RenderedSentence[] = [];
@@ -199,6 +211,37 @@ ipcMain.handle("voices:folder", () => { ensureDirs(); void shell.openPath(voices
 ipcMain.handle("app:training", () => {
   const guide = join(resources, "..", "TRAINING.md");
   void shell.openPath(existsSync(guide) ? guide : join(appRoot, "TRAINING.md"));
+});
+
+/**
+ * What somebody would need in order to help, and nothing else.
+ *
+ * There is no updater and no crash reporter, so a failure has no way of
+ * reaching anybody on its own. This is the substitute: the handful of facts
+ * that actually narrow a bug, gathered on request and put on the clipboard for
+ * the person to read before they send it. Nothing leaves the machine unless
+ * they choose to paste it somewhere.
+ *
+ * Deliberately excluded: the script, the dictionary and any file path outside
+ * the app. A diagnostic that quietly carries somebody's unreleased voiceover
+ * into a support chat is worse than no diagnostic.
+ */
+ipcMain.handle("app:diagnostics", () => {
+  const voices = VoiceEngine.availableVoices(resources);
+  return [
+    `Voice Forge ${app.getVersion()}`,
+    `${process.platform} ${process.arch} · Electron ${process.versions.electron} · Node ${process.versions.node}`,
+    `voices: ${voices.map(v => v.name + (v.isBundled ? " (bundled)" : " (installed)")).join(", ") || "none"}`,
+    `refused voices: ${VoiceEngine.installedProfiles().rejected.length}`,
+    `packaged: ${app.isPackaged}`,
+  ].join("\n");
+});
+
+ipcMain.handle("app:contact", (_e, kind: "telegram" | "email") => {
+  const url = kind === "telegram" ? CONTACT.telegram : `mailto:${CONTACT.email}`;
+  if (url.includes("REPLACE-ME")) return { error: "No contact is configured in this build yet." };
+  void shell.openExternal(url);
+  return {};
 });
 
 ipcMain.handle("voice:vocabulary", async (_e, voice: string) =>

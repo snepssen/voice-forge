@@ -23,6 +23,7 @@
   </span>
   <button class="toolbtn" id="btnDict" title="How this voice says particular words">Dictionary</button>
   <button class="toolbtn accent" id="btnExport" disabled>Export</button>
+  <button class="toolbtn" id="btnHelp" title="Version, and where to write if it breaks">?</button>
 </div>
 
 <div id="main">
@@ -119,7 +120,7 @@
   </div>
 </div>
 
-<div id="sheet">
+<div id="sheet" class="overlay">
   <div class="card">
     <header>
       <div>
@@ -136,6 +137,35 @@
       <button class="toolbtn" id="btnAddWord">Add</button>
       <span class="count" id="dictCount"></span>
     </footer>
+  </div>
+</div>
+
+<div id="helpSheet" class="overlay">
+  <div class="card small">
+    <header>
+      <div>
+        <h2>Voice Forge</h2>
+        <p class="note" id="helpVersion"></p>
+      </div>
+      <button class="go" id="helpDone">Done</button>
+    </header>
+    <div class="helpBody">
+      <p>There is no updater and no crash reporter, so if this stops working it has
+         no way of telling anybody. Write to me instead.</p>
+      <div class="actions">
+        <button class="toolbtn accent" id="btnTelegram">Message on Telegram</button>
+        <button class="toolbtn" id="btnEmail">Email</button>
+      </div>
+      <div class="divider"></div>
+      <p class="note">These are the facts that narrow a problem. Your script and your
+         dictionary are not included — copy it, read it, send it if you want to.</p>
+      <pre id="diagnostics"></pre>
+      <button class="toolbtn" id="btnCopyDiag">Copy diagnostics</button>
+      <span class="note" id="copied"></span>
+      <div class="divider"></div>
+      <p class="note">This app makes no network connections. That is enforced at the
+         socket layer, not promised — run it behind anything you like and watch.</p>
+    </div>
   </div>
 </div>
 

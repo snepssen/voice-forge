@@ -20,5 +20,7 @@ contextBridge.exposeInMainWorld("vf", {
   applyReport:      (req)         => invoke("dictionary:report", req),
   calibrate:        (req)         => invoke("calibrate", req),
   exportTake:       (req)         => invoke("export", req),
+  diagnostics:      ()            => invoke("app:diagnostics"),
+  contact:          (kind)        => invoke("app:contact", kind),
   onProgress:       (fn)          => ipcRenderer.on("progress", (_e, p) => fn(p)),
 });

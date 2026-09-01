@@ -35,6 +35,28 @@ off explicitly in `refuseToPhoneHome()` rather than assumed absent, the page run
 under a `default-src 'none'` CSP, and navigation is refused outright. There is
 no updater and no crash reporter.
 
+## Contact
+
+`CONTACT` in `src/main/index.ts` holds a Telegram link and an email address, and
+both are **placeholders** until somebody sets them. The Help sheet says so
+rather than opening a dead link.
+
+There is no updater and no crash reporter, which is deliberate — and it means a
+failure has no way of reaching anybody on its own. The Help sheet is the whole
+support surface: version, platform, Electron and Node versions, which voices are
+present. It puts them on the clipboard for the person to read before sending.
+The script and the dictionary are **not** included; a diagnostic that quietly
+carries somebody's unreleased voiceover into a support chat is worse than none.
+
+## Verified on
+
+- **macOS 15, Apple Silicon** — development, all suites, packaged app.
+- **SteamOS 3, Steam Deck (x86_64)** — the packaged `tar.gz`, 2026-09-01.
+  Launches, renders, plays, exports, and sounds right, which is the check that
+  matters most: it means the espeak-ng data travelled and the phonemizer did not
+  fall back to its own.
+- **Windows** — not yet. Needs a machine or the CI workflow.
+
 ## Building artifacts
 
 ```bash

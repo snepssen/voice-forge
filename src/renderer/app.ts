@@ -493,6 +493,25 @@ $("btnExport").addEventListener("click", async () => {
   if (r?.error) { state.error = r.error; } else if (r) { state.receipt = r; }
   paint();
 });
+$("btnHelp").addEventListener("click", async () => {
+  const d = await vf["diagnostics"]!();
+  $("helpVersion").textContent = d.split("\n")[0] ?? "";
+  $("diagnostics").textContent = d;
+  $("copied").textContent = "";
+  $("helpSheet").dataset["open"] = "true";
+});
+$("helpDone").addEventListener("click", () => { $("helpSheet").dataset["open"] = "false"; });
+$("btnCopyDiag").addEventListener("click", async () => {
+  await navigator.clipboard.writeText($("diagnostics").textContent ?? "");
+  $("copied").textContent = "copied";
+});
+for (const [id, kind] of [["btnTelegram", "telegram"], ["btnEmail", "email"]] as const) {
+  $(id).addEventListener("click", async () => {
+    const r = await vf["contact"]!(kind);
+    if (r?.error) { $("copied").textContent = r.error; }
+  });
+}
+
 $("btnDict").addEventListener("click", async () => {
   $("sheet").dataset["open"] = "true";
   await renderDictionary();
