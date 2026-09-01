@@ -13,7 +13,12 @@
     "allowImportingTsExtensions": false,
     "verbatimModuleSyntax": false,
     "esModuleInterop": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/types/*.d.ts"
+  ]
 }

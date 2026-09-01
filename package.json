@@ -9,7 +9,8 @@
     "check": "tsc && node out/check/run.js",
     "build": "tsc",
     "start": "npm run build && electron .",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "parity": "tsc && node out/check/engine-parity.js"
   },
   "dependencies": {
     "onnxruntime-node": "^1.29.0",
