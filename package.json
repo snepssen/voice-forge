@@ -11,7 +11,8 @@
     "start": "npm run build && electron .",
     "dist": "npm run build && electron-builder",
     "parity": "npm run build && node out/check/engine-parity.js",
-    "smoke": "npm run build && node out/check/smoke.js"
+    "smoke": "npm run build && node out/check/smoke.js",
+    "netcheck": "npm run build && node scripts/netcheck.mjs"
   },
   "dependencies": {
     "onnxruntime-node": "^1.29.0",

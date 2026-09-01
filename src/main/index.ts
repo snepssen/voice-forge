@@ -11,6 +11,7 @@ import { voicesDir, sessionFile, pronunciationFile, ensureDirs } from "../core/p
 import { voiceNameFromModelFile, configFileFor, rejectionMessage } from "../core/voiceLibrary.js";
 import { integratedLUFS, truePeakDBTP } from "../core/loudness.js";
 import { writeWav, resample } from "./audio.js";
+import { guardOutboundSockets } from "./netguard.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = join(here, "..", "..");
@@ -51,6 +52,10 @@ function refuseToPhoneHome(): void {
   app.commandLine.appendSwitch("dns-prefetch-disable");
   app.commandLine.appendSwitch("disable-sync");
   app.commandLine.appendSwitch("metrics-recording-only");
+
+  // Chromium's switches do not cover Node's network stack, and the main
+  // process is Node. See `netguard`.
+  guardOutboundSockets();
 }
 refuseToPhoneHome();
 
