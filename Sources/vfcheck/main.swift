@@ -93,6 +93,24 @@ do {
             "a URL and an email address are not sentence boundaries")
     c.equal(Script.parse("Pi is 3.14159 and e is 2.71828.").sentences.count, 1,
             "decimals are not either")
+
+    // An em dash only reaches espeak as a clause break when it has spaces.
+    // Measured: "quiet — and" phonemizes to `kwˈaɪət; ænd` -- a semicolon,
+    // which is why `;` and `—` calibrate to the same number -- while
+    // "quiet—and" gives `kwˈaɪət ænd`, byte-identical to writing no dash at
+    // all. The pause dial names `—` among the marks it gives room to, so for
+    // `word—word`, which is how most people type one, it was giving room to a
+    // break that was not there.
+    c.equal(Script.spacedEmDashes("quiet—and"), "quiet — and", "an unspaced em dash gets its spaces")
+    c.equal(Script.spacedEmDashes("quiet — and"), "quiet — and", "a spaced one is left alone")
+    c.equal(Script.spacedEmDashes("quiet— and"), "quiet — and", "and a half-spaced one is completed")
+    c.equal(Script.spacedEmDashes("quiet —and"), "quiet — and", "from either side")
+    c.equal(Script.spacedEmDashes("no dashes here"), "no dashes here", "text without one is untouched")
+    c.equal(Script.spacedEmDashes("a—b—c"), "a — b — c", "several in a row")
+    // A hyphen joins rather than separates, and espeak correctly runs
+    // `hyphenated-words` together as one phoneme run. It must not be touched.
+    c.equal(Script.spacedEmDashes("hyphenated-words"), "hyphenated-words",
+            "a hyphen is not an em dash and is left alone")
 }
 
 // ------------------------------------------------------------------ settings

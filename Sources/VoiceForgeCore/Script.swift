@@ -171,5 +171,41 @@ public struct Script: Equatable, Sendable {
         return out
     }
 
+    /// Give an em dash the spaces espeak needs in order to see it.
+    ///
+    /// **Measured, not assumed.** `quiet — and` phonemizes to `kwˈaɪət; ænd` —
+    /// espeak turns a spaced em dash into a semicolon clause break, which is
+    /// why `;` and `—` calibrate to the same number. `quiet—and` phonemizes to
+    /// `kwˈaɪət ænd`, byte-identical to writing no dash at all. The mark is
+    /// simply dropped.
+    ///
+    /// That mattered because the pause dial names `—` among the marks it gives
+    /// room to. For `word—word`, which is how most people type an em dash, it
+    /// was giving room to a break that did not exist. A control that names a
+    /// mark has to make that mark work.
+    ///
+    /// This is whitespace around punctuation, not a respelling: no word is
+    /// changed, and the dash does what it visibly means. A hyphen is left
+    /// alone — it joins rather than separates, and espeak correctly runs
+    /// `hyphenated-words` together as one phoneme run.
+    public static func spacedEmDashes(_ text: String) -> String {
+        guard text.contains("—") else { return text }
+        var out = ""
+        var pendingSpace = false
+        for ch in text {
+            if ch == "—" {
+                if !out.hasSuffix(" ") { out += " " }
+                out += "—"
+                pendingSpace = true
+            } else if pendingSpace {
+                out += ch == " " ? " " : " \(ch)"
+                pendingSpace = false
+            } else {
+                out.append(ch)
+            }
+        }
+        return out
+    }
+
     public init(sentences: [Sentence]) { self.sentences = sentences }
 }

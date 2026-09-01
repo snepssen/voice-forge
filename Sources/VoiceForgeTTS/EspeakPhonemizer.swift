@@ -77,7 +77,8 @@ public final class EspeakPhonemizer {
     /// Text to phoneme clauses -- each roughly a sentence or sub-clause,
     /// carrying its own terminator punctuation and whether it ends a sentence.
     public func clauses(for text: String) throws -> [Clause] {
-        guard let buffer = strdup(Self.respelled(text)) else { throw PhonemizerError.allocationFailed }
+        guard let buffer = strdup(Script.spacedEmDashes(Self.respelled(text)))
+        else { throw PhonemizerError.allocationFailed }
         defer { free(buffer) }
 
         var out: [Clause] = []

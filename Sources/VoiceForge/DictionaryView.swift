@@ -21,7 +21,12 @@ struct DictionaryView: View {
             Divider().overlay(Monokai.inset)
             footer
         }
-        .frame(minWidth: 720, minHeight: 460)
+        // **Bounded, and scrolling inside.** The sheet used to size itself to
+        // its contents, so each new entry made the window taller until a long
+        // dictionary ran off the bottom of the screen with no way back. A
+        // table is a thing you scroll, not a thing that grows.
+        .frame(minWidth: 760, idealWidth: 820,
+               minHeight: 420, idealHeight: 560, maxHeight: 720)
         .background(Monokai.bg)
     }
 
@@ -51,14 +56,23 @@ struct DictionaryView: View {
     }
 
     private var table: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                columnHeadings
-                ForEach($studio.dictionary.entries) { $entry in
-                    EntryRow(entry: $entry)
-                    Divider().overlay(Monokai.inset.opacity(0.5))
+        VStack(spacing: 0) {
+            columnHeadings
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach($studio.dictionary.entries) { $entry in
+                        EntryRow(entry: $entry)
+                        Divider().overlay(Monokai.inset.opacity(0.5))
+                    }
                 }
-                suggestions.padding(14)
+            }
+            // Held out of the scrolling rows: the headings stay put, the rows
+            // scroll under them, and the suggestions stay reachable at the
+            // bottom instead of being buried under a hundred entries.
+            if !studio.candidateWords.isEmpty {
+                Divider().overlay(Monokai.inset)
+                ScrollView { suggestions.padding(12) }
+                    .frame(maxHeight: 96)
             }
         }
     }
