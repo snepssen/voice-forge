@@ -9,10 +9,12 @@
     "check": "npm run build && node out/check/run.js",
     "build": "tsc && node scripts/copy-static.mjs",
     "start": "npm run build && electron .",
-    "dist": "npm run build && electron-builder",
+    "dist": "npm run build && electron-builder --publish never",
     "parity": "npm run build && node out/check/engine-parity.js",
     "smoke": "npm run build && node out/check/smoke.js",
-    "netcheck": "npm run build && node scripts/netcheck.mjs"
+    "netcheck": "npm run build && node scripts/netcheck.mjs",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never"
   },
   "dependencies": {
     "onnxruntime-node": "^1.29.0",
@@ -23,5 +25,93 @@
     "electron-builder": "^25.0.0",
     "typescript": "^5.6.0",
     "@types/node": "^22.0.0"
+  },
+  "author": "Snepssen",
+  "build": {
+    "appId": "local.voiceforge.app",
+    "productName": "Voice Forge",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "!out/check/**",
+      "electron/preload.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources",
+        "to": "app-resources"
+      },
+      {
+        "from": "TRAINING.md",
+        "to": "TRAINING.md"
+      }
+    ],
+    "publish": null,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "AudioVideo",
+      "synopsis": "Text to speech with its dials on the outside",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.music"
+    }
   }
 }

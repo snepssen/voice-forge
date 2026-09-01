@@ -35,6 +35,24 @@ off explicitly in `refuseToPhoneHome()` rather than assumed absent, the page run
 under a `default-src 'none'` CSP, and navigation is refused outright. There is
 no updater and no crash reporter.
 
+## Building artifacts
+
+```bash
+npm run dist:win      # NSIS installer + zip
+npm run dist:linux    # tar.gz, AppImage, deb
+```
+
+**Each platform builds its own, and that is not laziness.** Cross-building from
+a Mac gets partway and stops: the Linux app tree builds correctly — a real
+aarch64 ELF with every resource in place — but electron-builder ships an
+**x86_64** `mksquashfs` for macOS hosts, so AppImage cannot be produced on Apple
+Silicon at all (`bad CPU type in executable`), and NSIS needs wine. `tar.gz` is
+the one Linux target that builds anywhere, and it is complete: app.asar, the
+voice, all 952 espeak-ng data files and the training guide.
+
+`.github/workflows/build.yml` runs each platform on itself, gated on all three
+check suites. It publishes nothing and sets up no update channel.
+
 ## If `npm install` leaves Electron broken
 
 npm may block the package's postinstall, which is what downloads the ~95 MB
