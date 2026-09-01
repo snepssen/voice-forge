@@ -23,12 +23,16 @@ guard let command = args.first else {
 
 switch command {
 case "voices":
-    let voices = VoiceEngine.bundledVoices()
-    guard !voices.isEmpty else { fail("no bundled voices found") }
+    let voices = VoiceEngine.availableVoices()
+    guard !voices.isEmpty else { fail("no voices found") }
     for v in voices {
-        let engine = try? VoiceEngine(voice: v)
-        print("\(v)\(engine.map { "  \(Int($0.sampleRate)) Hz" } ?? "  UNLOADABLE")")
+        let engine = try? VoiceEngine(profile: v)
+        print("\(v.name)  \(v.isBundled ? "bundled " : "installed")"
+              + (engine.map { "  \(Int($0.sampleRate)) Hz" } ?? "  UNLOADABLE"))
     }
+    let rejected = VoiceEngine.installedProfiles().rejected
+    for r in rejected { print("  refused: \(r.message)") }
+    print("\nvoices folder: \(AppDirectories.voices.path)")
 
 case "say":
     guard args.count >= 3 else { fail("usage: vfrender say <voice> \"text\" [out.wav]") }

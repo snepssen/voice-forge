@@ -17,8 +17,8 @@ public struct SynthesisSettings: Equatable, Sendable, Codable {
     /// On `snepssen-rode` it is a measured likeness: 60 rendered lines against
     /// the reader's own recordings of the same text gave an articulation rate
     /// ratio of 1.0034, so the model says words at the reader's own rate to
-    /// within a third of one percent. `snepssen-suno` was fine-tuned on
-    /// generated audio instead, and on identical copy it reads **31% faster** —
+    /// within a third of one percent. The voice bundled here was fine-tuned on
+    /// generated audio instead, and on identical copy reads **31% faster** —
     /// 194 words a minute against 148. See `VoiceNotes`, which is where the
     /// per-voice claim lives, precisely so that one voice's measurement cannot
     /// be printed under the other.
@@ -122,6 +122,6 @@ public struct SynthesisSettings: Equatable, Sendable, Codable {
 
     // The pace note lives in `VoiceNotes`, not here. It has to name the voice
     // it was measured on: the 0.3% figure is real but was measured on
-    // snepssen-rode, and snepssen-suno reads 31% faster on identical copy.
+    // snepssen-rode, and the bundled voice reads 31% faster on identical copy.
     // Printing one voice's measurement under the other was false.
 }

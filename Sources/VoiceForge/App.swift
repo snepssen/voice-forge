@@ -9,7 +9,7 @@ struct VoiceForgeApp: App {
             Workbench()
                 .environmentObject(studio)
                 .frame(minWidth: 900, minHeight: 600)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(studio.appearance.scheme)
                 .tint(Monokai.purple)
         }
         .defaultSize(width: 1240, height: 820)

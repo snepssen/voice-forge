@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import VoiceForgeCore
@@ -6,6 +7,7 @@ import VoiceForgeTTS
 struct Workbench: View {
     @EnvironmentObject var studio: Studio
     @State private var exporting = false
+    @State private var addingVoice = false
 
     var body: some View {
         HSplitView {
@@ -45,6 +47,14 @@ struct Workbench: View {
                 .disabled(studio.rendered.isEmpty)
             Button { studio.stop() } label: { Label("Stop", systemImage: "stop.fill") }
                 .disabled(studio.rendered.isEmpty)
+            Picker("", selection: $studio.appearance) {
+                ForEach(Appearance.allCases) { a in
+                    Image(systemName: a == .system ? "circle.lefthalf.filled"
+                          : a == .light ? "sun.max" : "moon").tag(a)
+                }
+            }
+            .pickerStyle(.segmented).labelsHidden().frame(width: 110)
+            .help("Follow the system, or pin light or dark")
             Button { studio.showingDictionary = true } label: {
                 Label("Dictionary", systemImage: "character.book.closed")
             }
@@ -92,7 +102,7 @@ struct Workbench: View {
     private var voicePanel: some View {
         Panel(title: "Voice", trailing: studio.voices.isEmpty ? nil : "\(Int(studio.sampleRate)) Hz") {
             if studio.voices.isEmpty {
-                Text("No voice models are bundled with this build.")
+                Text("No voice is installed and none is bundled with this build.")
                     .foregroundStyle(Monokai.red)
             } else {
                 Picker("", selection: $studio.voice) {
@@ -103,11 +113,51 @@ struct Workbench: View {
                     Text(note.summary)
                         .font(.caption).foregroundStyle(Monokai.comment)
                         .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Installed by you. Nothing here has measured it — press Measure this voice to learn its pauses.")
+                        .font(.caption).foregroundStyle(Monokai.comment)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Text("The same speaker either way. Switching re-renders nothing on its own — press Render.")
-                    .font(.caption).foregroundStyle(Monokai.comment)
+            }
+            // Anything in the folder that is not a usable voice. Named, because
+            // somebody who has just trained a model and copied one of its two
+            // files should be told which is missing rather than find their
+            // voice quietly absent from a menu.
+            ForEach(studio.rejectedVoices.indices, id: \.self) { i in
+                Label(studio.rejectedVoices[i].message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(Monokai.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            HStack(spacing: 8) {
+                Button("Add a voice…") { addingVoice = true }
+                if !studio.isBundled(studio.voice) {
+                    Button("Remove") { studio.removeInstalledVoice(studio.voice) }
+                }
+                Button("Voices folder") {
+                    AppDirectories.ensure()
+                    NSWorkspace.shared.open(AppDirectories.voices)
+                }
+                Spacer()
+                Button("How to train one") { openTrainingGuide() }
+                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Monokai.purple)
+            }
+            .font(.caption)
+        }
+        .fileImporter(isPresented: $addingVoice, allowedContentTypes: [.data]) { result in
+            guard case .success(let url) = result else { return }
+            if let name = studio.installVoice(from: url) { studio.voice = name }
+        }
+    }
+
+    /// The guide ships beside the app so it works with no network. Falling back
+    /// to the repository copy keeps a development build useful.
+    private func openTrainingGuide() {
+        if let bundled = Bundle.main.url(forResource: "TRAINING", withExtension: "md") {
+            NSWorkspace.shared.open(bundled)
+        } else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: "TRAINING.md"))
         }
     }
 

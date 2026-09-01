@@ -93,6 +93,10 @@ done < <(echo "$APP_VOICES")
   echo "error: espeak-ng-data did not land in the app" >&2; exit 1; }
 echo "voices packaged: $(echo "$APP_VOICES" | tr '\n' ' ')($voice_count)$([ "$pruned" -gt 0 ] && echo ", $pruned pruned")"
 
+# The training guide travels with the app, so "How to train one" works with no
+# network and no repository checkout.
+cp "$ROOT/TRAINING.md" "$APP/Contents/Resources/TRAINING.md"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

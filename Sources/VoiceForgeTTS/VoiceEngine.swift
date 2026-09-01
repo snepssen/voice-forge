@@ -78,31 +78,54 @@ public final class VoiceEngine: @unchecked Sendable {
     /// The rate this model actually speaks at, read from its own config.
     public var sampleRate: Double { Double(config.audio.sample_rate) }
 
-    /// Which voices are bundled, by name. Derived from the resources actually
-    /// present rather than from a list — the same rule the packaging gate uses,
-    /// after a hardcoded filename let a deleted model keep shipping.
-    public static func bundledVoices() -> [String] {
-        guard let dir = Bundle.module.resourceURL,
-              let entries = try? FileManager.default.contentsOfDirectory(
-                at: dir, includingPropertiesForKeys: nil)
-        else { return [] }
-        return entries.compactMap { url -> String? in
-            let name = url.lastPathComponent
-            guard name.hasPrefix("en_US-"), name.hasSuffix("-medium.onnx") else { return nil }
-            return String(name.dropFirst("en_US-".count).dropLast("-medium.onnx".count))
-        }.sorted()
+    /// Every voice available: the one that ships, plus anything installed.
+    ///
+    /// One voice ships and it is not privileged. An installed voice of the same
+    /// name wins, so somebody who retrains `snepssen` gets theirs without
+    /// having to pick a different name to escape ours.
+    public static func availableVoices() -> [VoiceProfile] {
+        VoiceLibrary.merge(bundled: bundledProfiles(), installed: installedProfiles().voices)
     }
 
-    public init(voice: String) throws {
-        guard let env = Self.env else { throw VoiceEngineError.noEnvironment }
-        self.voice = voice
-        let stem = "en_US-\(voice)-medium"
-        guard let modelURL = Bundle.module.url(forResource: stem, withExtension: "onnx"),
-              let configURL = Bundle.module.url(forResource: stem + ".onnx", withExtension: "json"),
-              let dataDir = Bundle.module.url(forResource: "espeak-ng-data", withExtension: nil)
+    public static func bundledProfiles() -> [VoiceProfile] {
+        guard let dir = Bundle.module.resourceURL,
+              let files = try? FileManager.default.contentsOfDirectory(atPath: dir.path)
+        else { return [] }
+        return VoiceLibrary.scan(files: files, in: dir, bundled: true).voices
+    }
+
+    /// What is in the user's voices folder, and what is wrong with the rest.
+    /// The rejections are surfaced: somebody who has just trained a model and
+    /// copied one of its two files deserves to be told which is missing.
+    public static func installedProfiles()
+        -> (voices: [VoiceProfile], rejected: [VoiceRejection]) {
+        let dir = AppDirectories.voices
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: dir.path)
+        else { return ([], []) }
+        return VoiceLibrary.scan(files: files, in: dir, bundled: false)
+    }
+
+    /// The espeak-ng data, which every voice shares. Bundled, not per voice —
+    /// a Piper export carries a model and a config, never the phonemizer.
+    public static func espeakDataDirectory() -> URL? {
+        Bundle.module.url(forResource: "espeak-ng-data", withExtension: nil)
+    }
+
+    public convenience init(voice: String) throws {
+        guard let profile = Self.availableVoices().first(where: { $0.name == voice })
         else { throw VoiceEngineError.noModel(voice) }
-        config = try JSONDecoder().decode(PiperVoiceConfig.self, from: Data(contentsOf: configURL))
-        session = try ORTSession(env: env, modelPath: modelURL.path, sessionOptions: nil)
+        try self.init(profile: profile)
+    }
+
+    public init(profile: VoiceProfile) throws {
+        guard let env = Self.env else { throw VoiceEngineError.noEnvironment }
+        self.voice = profile.name
+        guard let dataDir = Self.espeakDataDirectory() else {
+            throw VoiceEngineError.noModel(profile.name)
+        }
+        config = try JSONDecoder().decode(PiperVoiceConfig.self,
+                                          from: Data(contentsOf: profile.configURL))
+        session = try ORTSession(env: env, modelPath: profile.modelURL.path, sessionOptions: nil)
         phonemizer = try EspeakPhonemizer(dataDirectory: dataDir, voice: config.espeak.voice)
     }
 

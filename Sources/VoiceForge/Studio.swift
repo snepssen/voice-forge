@@ -13,7 +13,7 @@ final class Studio: ObservableObject {
 
     I have been building a text to speech tool, and the interesting part is not the voice — it is the timing. A comma is worth about half a second here, which is longer than most people expect.
     """
-    @Published var voice: String = VoiceEngine.bundledVoices().first ?? ""
+    @Published var voice: String = VoiceEngine.availableVoices().first?.name ?? ""
     @Published var settings = SynthesisSettings()
     @Published var export = Export.Settings()
 
@@ -30,11 +30,61 @@ final class Studio: ObservableObject {
     @Published var selected: Int?
     @Published var dictionary = PronunciationDictionary() { didSet { save() } }
     @Published var showingDictionary = false
+    @Published var appearance: Appearance = .system { didSet { save() } }
 
     /// Rebuilt from `text` on every keystroke. Cheap — no model involved.
     var script: Script { Script.parse(text) }
 
-    var voices: [String] { VoiceEngine.bundledVoices() }
+    var voices: [String] { profiles.map(\.name) }
+    var profiles: [VoiceProfile] { VoiceEngine.availableVoices() }
+    /// Files in the voices folder that are not a usable voice, so the reason
+    /// can be shown rather than the voice silently missing.
+    var rejectedVoices: [VoiceRejection] { VoiceEngine.installedProfiles().rejected }
+    func isBundled(_ name: String) -> Bool {
+        profiles.first { $0.name == name }?.isBundled ?? false
+    }
+
+    /// Copy a Piper export into the voices folder. Both files or neither: a
+    /// model without its config is what the rejection list exists to report,
+    /// and creating that state ourselves would be careless.
+    func installVoice(from modelURL: URL) -> String? {
+        AppDirectories.ensure()
+        let model = modelURL.lastPathComponent
+        guard let name = VoiceLibrary.voiceName(fromModelFile: model) else {
+            error = "\(model) is not a .onnx model file."
+            return nil
+        }
+        let configURL = modelURL.deletingLastPathComponent()
+            .appending(path: VoiceLibrary.configFile(forModelFile: model))
+        guard FileManager.default.fileExists(atPath: configURL.path) else {
+            error = "\(model) has no \(configURL.lastPathComponent) beside it. Piper exports the two together — copy both."
+            return nil
+        }
+        do {
+            for url in [modelURL, configURL] {
+                let to = AppDirectories.voices.appending(path: url.lastPathComponent)
+                if FileManager.default.fileExists(atPath: to.path) {
+                    try FileManager.default.removeItem(at: to)
+                }
+                try FileManager.default.copyItem(at: url, to: to)
+            }
+        } catch {
+            self.error = "Could not copy the voice: \(error.localizedDescription)"
+            return nil
+        }
+        engines[name] = nil
+        objectWillChange.send()
+        return name
+    }
+
+    func removeInstalledVoice(_ name: String) {
+        guard let p = profiles.first(where: { $0.name == name }), !p.isBundled else { return }
+        try? FileManager.default.removeItem(at: p.modelURL)
+        try? FileManager.default.removeItem(at: p.configURL)
+        engines[name] = nil
+        if voice == name { voice = profiles.first?.name ?? "" }
+        objectWillChange.send()
+    }
 
     /// Where the session is kept between launches.
     ///
@@ -65,6 +115,7 @@ final class Studio: ObservableObject {
         /// writing them into the session would make a copy per script that
         /// then drifts.
         var projectEntries: [PronunciationEntry]?
+        var appearance: Appearance?
     }
 
     private static var globalDictionaryURL: URL {
@@ -85,6 +136,7 @@ final class Studio: ObservableObject {
         if voices.contains(saved.voice) { voice = saved.voice }
         settings = saved.settings
         export = saved.export
+        appearance = saved.appearance ?? .system
         calibrations = saved.calibrations
         calibration = calibrations[voice]
 
@@ -101,7 +153,7 @@ final class Studio: ObservableObject {
         guard !loading else { return }
         let saved = Saved(text: text, voice: voice, settings: settings,
                           export: export, calibrations: calibrations,
-                          projectEntries: dictionary.project)
+                          projectEntries: dictionary.project, appearance: appearance)
         try? JSONEncoder().encode(saved).write(to: Self.stateURL, options: .atomic)
         try? JSONEncoder().encode(dictionary.global)
             .write(to: Self.globalDictionaryURL, options: .atomic)
@@ -113,7 +165,7 @@ final class Studio: ObservableObject {
         save()
     }
 
-    private var engines: [String: VoiceEngine] = [:]
+    private var engines: [String: VoiceEngine?] = [:]
     private var player: AVAudioPlayer?
     private var previewURL: URL?
 
@@ -121,8 +173,11 @@ final class Studio: ObservableObject {
     /// Both fit in memory comfortably at ~63 MB each, and the whole point of
     /// this app is switching between them.
     private func engine(_ name: String) throws -> VoiceEngine {
-        if let e = engines[name] { return e }
-        let e = try VoiceEngine(voice: name)
+        if let e = engines[name], let e { return e }
+        guard let profile = profiles.first(where: { $0.name == name }) else {
+            throw VoiceEngineError.noModel(name)
+        }
+        let e = try VoiceEngine(profile: profile)
         engines[name] = e
         return e
     }

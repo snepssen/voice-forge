@@ -1,8 +1,9 @@
 # Voice Forge — working context
 
 A standalone macOS text-to-speech app built on the Piper/VITS engine written for
-Gateway Forge, with two voices fine-tuned on the owner's own speech. Local,
-single executable, no network, no Python.
+Gateway Forge. One voice ships — `snepssen`, fine-tuned on the owner's own
+speech — and any Piper voice can be installed beside it. Local, single
+executable, no network, no Python.
 
 **Voice Forge is the other half of Gateway Forge's engine.** That app settles
 the synthesiser's numbers and never shows them, which is right for a meditation
@@ -17,6 +18,33 @@ be a deliberate edit visible in this project's own history. One difference
 exists already: Gateway Forge respells `I-There` and `REBAL` before espeak sees
 them, because those are its own vocabulary. A general TTS tool must not quietly
 rewrite the words it was given, so that table is gone.
+
+### Voices
+
+One voice is bundled and **it is not privileged**: `VoiceEngine.availableVoices()`
+merges the bundle with whatever is in the user's voices folder, and an installed
+voice of the same name wins — so somebody who retrains `snepssen` gets theirs
+without having to rename it to escape ours. A voice is a Piper `.onnx` plus its
+`.onnx.json`; the name is the middle field of the filename, and parsing stays
+permissive because `en_GB-alice-high` is a perfectly good voice this app has no
+stake in rejecting. A model with no config is refused *by name* — somebody who
+just spent days training should be told which file is missing, not find their
+voice quietly absent from a menu. `TRAINING.md` is the guide, and ships inside
+the app so it works with no network.
+
+`snepssen-rode` is no longer bundled. It lives on in Gateway Forge, where it was
+measured, and can be installed here like any other voice.
+
+### Appearance
+
+Light and dark, toggled in the toolbar and persisted. Every colour is one
+`NSColor` dynamic value, so the ~200 existing `Monokai.x` call sites did not
+change — threading a palette through the environment would have been a large
+diff to reproduce what AppKit already does. This is the one deliberately
+Apple-only mechanism in the app; a port carries the hex values across, not this.
+The light side is not an inversion: Monokai's character is its hues against a
+warm ground, so the ground stays warm and the hues darken until they carry on
+paper.
 
 ```bash
 ./build.sh                       # checks -> build -> Voice Forge.app

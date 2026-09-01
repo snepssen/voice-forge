@@ -297,7 +297,7 @@ do {
 // ---------------------------------------------------------------- voice notes
 // A claim attached to the wrong thing. The pace dial said "the reader's own
 // rate, measured to within 0.3%" under every voice. The measurement is real but
-// was made on snepssen-rode against the reader's own recordings; snepssen-suno
+// was made on snepssen-rode against the reader's own recordings; snepssen
 // was fine-tuned on generated audio and reads 31% faster on identical copy --
 // 194 words a minute against 148, with commas worth 145 ms against 457.
 // Printing rode's measurement under suno was simply false.
@@ -305,23 +305,26 @@ c.suite("voice notes")
 do {
     c.expect(VoiceNotes.note("snepssen-rode")?.paceReference != nil,
              "the measured voice carries its measurement")
-    c.expect(VoiceNotes.note("snepssen-suno")?.paceReference == nil,
+    c.expect(VoiceNotes.note("snepssen")?.paceReference == nil,
              "and the unmeasured one does not borrow it")
     let rode = VoiceNotes.paceNote(voice: "snepssen-rode", lengthScale: 1.0)
-    let suno = VoiceNotes.paceNote(voice: "snepssen-suno", lengthScale: 1.0)
+    let bundled = VoiceNotes.paceNote(voice: "snepssen", lengthScale: 1.0)
     c.expect(rode.contains("0.3%"), "rode says it is a measured likeness")
-    c.expect(!suno.contains("0.3%"),
+    c.expect(!bundled.contains("0.3%"),
              "suno does not claim a likeness nobody measured for it")
-    c.expect(suno.contains("where it was trained"),
+    c.expect(bundled.contains("where it was trained"),
              "and says plainly what 1.0 means for it instead")
-    c.expect(rode != suno, "the two voices do not say the same thing at 1.0")
+    c.expect(rode != bundled, "the two voices do not say the same thing at 1.0")
 
     // An unknown voice must not be given somebody else's numbers either.
     let unknown = VoiceNotes.paceNote(voice: "not-a-voice", lengthScale: 1.0)
     c.expect(!unknown.contains("0.3%"), "an unknown voice claims nothing")
+    c.expect(VoiceNotes.paceNote(voice: "somebody-elses-voice", lengthScale: 1.3)
+                .contains("not been measured here"),
+             "and an installed voice says plainly that nobody measured it")
 
     // A departure is described against the voice's own rate, not a shared one.
-    let slow = VoiceNotes.paceNote(voice: "snepssen-suno", lengthScale: 1.2)
+    let slow = VoiceNotes.paceNote(voice: "snepssen", lengthScale: 1.2)
     c.expect(slow.contains("20% slower"), "a departure is named in plain terms")
     c.expect(slow.contains("194"), "against this voice's own measured rate")
     c.expect(VoiceNotes.paceNote(voice: "snepssen-rode", lengthScale: 1.2).contains("148"),
@@ -405,7 +408,7 @@ do {
     var other = SynthesisSettings(); other.lengthScale = 1.3
     c.expect(!cal.describes(other, voice: "snepssen-rode"),
              "a calibration does not survive a change of pace")
-    c.expect(!cal.describes(SynthesisSettings(), voice: "snepssen-suno"),
+    c.expect(!cal.describes(SynthesisSettings(), voice: "snepssen"),
              "nor transfer between voices")
     c.expect(cal.describes(SynthesisSettings(), voice: "snepssen-rode"),
              "but does describe the settings it was taken at")

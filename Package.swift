@@ -45,14 +45,14 @@ let package = Package(
                     "CEspeakNG",
                     .product(name: "onnxruntime", package: "onnxruntime-swift-package-manager"),
                 ],
-                // Two voices ship. Named individually rather than copying the
-                // directory, so adding one is a deliberate edit here and a
-                // stray file cannot ride along into the bundle.
+                // One voice ships, named individually rather than by copying
+                // the directory, so adding one is a deliberate edit here and a
+                // stray file cannot ride along into the bundle. Everything else
+                // a listener uses is installed into their voices folder, which
+                // is not part of the build.
                 resources: [
-                    .copy("Resources/en_US-snepssen-suno-medium.onnx"),
-                    .copy("Resources/en_US-snepssen-suno-medium.onnx.json"),
-                    .copy("Resources/en_US-snepssen-rode-medium.onnx"),
-                    .copy("Resources/en_US-snepssen-rode-medium.onnx.json"),
+                    .copy("Resources/en_US-snepssen-medium.onnx"),
+                    .copy("Resources/en_US-snepssen-medium.onnx.json"),
                     .copy("Resources/espeak-ng-data"),
                 ]),
         .executableTarget(name: "VoiceForge", dependencies: ["VoiceForgeCore", "VoiceForgeTTS"]),

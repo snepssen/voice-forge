@@ -1,29 +1,58 @@
+import AppKit
 import SwiftUI
 
-extension Color {
-    init(hex: UInt32) {
-        self.init(.sRGB,
-                  red: Double((hex >> 16) & 0xFF) / 255,
-                  green: Double((hex >> 8) & 0xFF) / 255,
-                  blue: Double(hex & 0xFF) / 255)
+/// How the listener wants the app to look.
+enum Appearance: String, CaseIterable, Identifiable, Codable {
+    case system, light, dark
+    var id: String { rawValue }
+    var label: String {
+        switch self { case .system: "System"; case .light: "Light"; case .dark: "Dark" }
+    }
+    var scheme: ColorScheme? {
+        switch self { case .system: nil; case .light: .light; case .dark: .dark }
     }
 }
 
-/// Monokai, the same palette Gateway Forge uses, and the same rule about what
-/// colour means: gray = unavailable · orange = pending · red = error ·
-/// green = fine · purple = active. Never an ad-hoc colour.
+/// Monokai, and a light companion that keeps its hues.
+///
+/// **Every colour is one dynamic value, so nothing else in the app changed.**
+/// The alternative was threading a palette through the environment and
+/// rewriting some two hundred call sites, which would have been a large diff to
+/// accomplish what AppKit already does: an `NSColor` built with a dynamic
+/// provider resolves itself against whatever appearance the window is in. The
+/// toggle sets the window's appearance and the colours follow.
+///
+/// This is the one deliberately Apple-only thing in the app, and it is the
+/// right trade while the UI is SwiftUI. A port draws its own pixels and will
+/// carry these hex values across rather than this mechanism.
+///
+/// The light side is not an inversion. Monokai's character is its hues against
+/// a warm ground, so the ground stays warm and the hues are darkened until they
+/// carry on paper — a straight inversion gives the washed-out pastel look that
+/// makes a light theme feel like an afterthought.
 enum Monokai {
-    static let bg      = Color(hex: 0x272822)
-    static let panel   = Color(hex: 0x31322B)
-    static let inset   = Color(hex: 0x3E3D32)
-    static let fg      = Color(hex: 0xF8F8F2)
-    static let comment = Color(hex: 0x75715E)
-    static let yellow  = Color(hex: 0xE6DB74)
-    static let orange  = Color(hex: 0xFD971F)
-    static let red     = Color(hex: 0xF92672)
-    static let green   = Color(hex: 0xA6E22E)
-    static let purple  = Color(hex: 0xAE81FF)
-    static let cyan    = Color(hex: 0x66D9EF)
+    private static func dynamic(dark: UInt32, light: UInt32) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let hex = isDark ? dark : light
+            return NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+                           green: CGFloat((hex >> 8) & 0xFF) / 255,
+                           blue: CGFloat(hex & 0xFF) / 255,
+                           alpha: 1)
+        })
+    }
+
+    static let bg      = dynamic(dark: 0x272822, light: 0xFAF8F0)
+    static let panel   = dynamic(dark: 0x31322B, light: 0xF1EEE1)
+    static let inset   = dynamic(dark: 0x3E3D32, light: 0xE2DECD)
+    static let fg      = dynamic(dark: 0xF8F8F2, light: 0x272822)
+    static let comment = dynamic(dark: 0x75715E, light: 0x8A8672)
+    static let yellow  = dynamic(dark: 0xE6DB74, light: 0x8A7500)
+    static let orange  = dynamic(dark: 0xFD971F, light: 0xB35C00)
+    static let red     = dynamic(dark: 0xF92672, light: 0xC2185B)
+    static let green   = dynamic(dark: 0xA6E22E, light: 0x4F7A00)
+    static let purple  = dynamic(dark: 0xAE81FF, light: 0x6A3FD4)
+    static let cyan    = dynamic(dark: 0x66D9EF, light: 0x00697F)
 }
 
 /// A titled panel. Every box in this app is one, so the spacing is decided
