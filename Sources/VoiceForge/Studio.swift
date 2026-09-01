@@ -28,6 +28,8 @@ final class Studio: ObservableObject {
     /// and true peak both move with resampling.
     @Published private(set) var exportPreview: Export.Preview?
     @Published var selected: Int?
+    @Published var dictionary = PronunciationDictionary() { didSet { save() } }
+    @Published var showingDictionary = false
 
     /// Rebuilt from `text` on every keystroke. Cheap — no model involved.
     var script: Script { Script.parse(text) }
@@ -58,6 +60,15 @@ final class Studio: ObservableObject {
         var export: Export.Settings
         /// Kept per voice, because a calibration does not transfer between them.
         var calibrations: [String: PauseCalibration]
+        /// Only the project-scoped entries. The global ones are kept in their
+        /// own file: they belong to the person, not to this script, and
+        /// writing them into the session would make a copy per script that
+        /// then drifts.
+        var projectEntries: [PronunciationEntry]?
+    }
+
+    private static var globalDictionaryURL: URL {
+        stateURL.deletingLastPathComponent().appending(path: "pronunciation.json")
     }
 
     private var calibrations: [String: PauseCalibration] = [:]
@@ -76,13 +87,24 @@ final class Studio: ObservableObject {
         export = saved.export
         calibrations = saved.calibrations
         calibration = calibrations[voice]
+
+        var entries: [PronunciationEntry] = []
+        if let data = try? Data(contentsOf: Self.globalDictionaryURL),
+           let global = try? JSONDecoder().decode([PronunciationEntry].self, from: data) {
+            entries += global
+        }
+        entries += saved.projectEntries ?? []
+        dictionary = PronunciationDictionary(entries: entries)
     }
 
     func save() {
         guard !loading else { return }
         let saved = Saved(text: text, voice: voice, settings: settings,
-                          export: export, calibrations: calibrations)
+                          export: export, calibrations: calibrations,
+                          projectEntries: dictionary.project)
         try? JSONEncoder().encode(saved).write(to: Self.stateURL, options: .atomic)
+        try? JSONEncoder().encode(dictionary.global)
+            .write(to: Self.globalDictionaryURL, options: .atomic)
     }
 
     /// Switching voice swaps in that voice's own calibration, or none.
@@ -106,6 +128,74 @@ final class Studio: ObservableObject {
     }
 
     var sampleRate: Double { (try? engine(voice))?.sampleRate ?? Audio.modelSampleRate }
+
+    // MARK: pronunciation
+
+    /// The symbols the current voice knows. Empty if it will not load, which
+    /// makes every entry read as invalid -- correct, since nothing can be
+    /// validated against a voice that is not there.
+    var vocabulary: Set<String> { (try? engine(voice))?.vocabularySet ?? [] }
+
+    /// What espeak says for a word on its own, for the "says it as" column.
+    func defaultPhonemes(for word: String) -> String {
+        (try? engine(voice))?.defaultPhonemes(for: word) ?? ""
+    }
+
+    /// The entries in force, with anything invalid left out.
+    ///
+    /// Filtered here rather than at the point of use, so a blocked entry cannot
+    /// reach the model by some other path. A warning does not block: a
+    /// look-alike is legal IPA and somebody may mean it.
+    var activeEntries: [PronunciationEntry] {
+        let vocab = vocabulary
+        return dictionary.effective.filter {
+            !PronunciationDictionary.problem(with: $0.ipa, vocabulary: vocab).isBlocking
+        }
+    }
+
+    /// How many sentences an entry actually changes.
+    ///
+    /// Counted by running the substitution, not by looking for the word in the
+    /// text: the whole question is whether espeak said the same thing here as
+    /// it did for the word alone, and only the substitution knows.
+    func sentencesAffected(by entry: PronunciationEntry) -> Int {
+        guard let e = try? engine(voice) else { return 0 }
+        return script.sentences.filter {
+            e.phonemes(for: $0.text, settings: settings, dictionary: [entry]).applied.contains(entry.key)
+        }.count
+    }
+
+    /// Words from the script worth offering as a starting point.
+    ///
+    /// Longer, less common words with no entry yet — where espeak is likeliest
+    /// to be guessing. Not a claim that any of them is wrong; the app cannot
+    /// know that, and says so.
+    var candidateWords: [String] {
+        let have = Set(dictionary.entries.map(\.key))
+        var seen = Set<String>()
+        var out: [String] = []
+        for raw in text.split(whereSeparator: { !$0.isLetter && $0 != "'" && $0 != "-" }) {
+            let w = String(raw)
+            let key = w.lowercased()
+            guard w.count >= 6, !have.contains(key), !seen.contains(key) else { continue }
+            seen.insert(key)
+            out.append(w)
+        }
+        return Array(out.prefix(18))
+    }
+
+    func addEntry(for word: String) {
+        let key = word.lowercased()
+        guard !dictionary.entries.contains(where: { $0.key == key && $0.scope == .global }) else { return }
+        // Seeded with what espeak already says, so the field starts from
+        // something correct and editable rather than from nothing.
+        dictionary.entries.append(
+            PronunciationEntry(word: word, ipa: defaultPhonemes(for: word), scope: .global))
+    }
+
+    func removeEntry(_ id: UUID) {
+        dictionary.entries.removeAll { $0.id == id }
+    }
 
     // MARK: totals
 
@@ -134,11 +224,11 @@ final class Studio: ObservableObject {
     func renderAll() async {
         guard !script.isEmpty else { rendered = []; return }
         busy = "Rendering"; progress = 0; error = nil
-        let s = settings, v = voice, sc = script
+        let s = settings, v = voice, sc = script, d = activeEntries
         do {
             let e = try engine(v)
             let out = try await Task.detached { [weak self] in
-                try e.render(sc, settings: s) { i, n in
+                try e.render(sc, settings: s, dictionary: d) { i, n in
                     Task { @MainActor in self?.progress = Double(i) / Double(n) }
                 }
             }.value
@@ -171,7 +261,8 @@ final class Studio: ObservableObject {
         do {
             let e = try engine(voice)
             let old = rendered[index]
-            let samples = try e.renderSentence(old.text, settings: settings)
+            let samples = try e.renderSentence(old.text, settings: settings,
+                                               dictionary: activeEntries)
             let seconds = Audio.seconds(samples, at: e.sampleRate)
             let words = old.text.split(whereSeparator: \.isWhitespace).count
             defer { refreshPreview() }

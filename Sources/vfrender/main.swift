@@ -131,5 +131,42 @@ case "probe":
     }
     print("  envelope (20ms/char): " + env.joined())
 
+case "phonemes":
+    // What espeak actually produces, and what of it the model can hear.
+    let engine = try VoiceEngine(voice: args[1])
+    for text in args.dropFirst(2) {
+        let ipa = try engine.phonemesFor(text)
+        let (kept, dropped) = engine.vocabularyCheck(ipa)
+        print("\(text)")
+        print("  IPA:     \(ipa)")
+        print("  in map:  \(kept) symbol(s)")
+        if !dropped.isEmpty {
+            print("  DROPPED: \(dropped.map { "\($0) (U+\(String(format: "%04X", $0.unicodeScalars.first!.value)))" }.joined(separator: " "))")
+        }
+    }
+
+case "dict":
+    // vfrender dict <voice> "sentence" <word> <ipa>
+    guard args.count >= 5 else { fail("usage: vfrender dict <voice> \"sentence\" <word> <ipa>") }
+    let engine = try VoiceEngine(voice: args[1])
+    let settings = SynthesisSettings()
+    let entry = PronunciationEntry(word: args[3], ipa: args[4])
+    let problem = PronunciationDictionary.problem(with: entry.ipa,
+                                                  vocabulary: engine.vocabularySet)
+    print("entry: \(entry.word) -> \(entry.ipa)")
+    print("  default for that word: \(engine.defaultPhonemes(for: entry.word))")
+    print("  valid: \(problem.isBlocking ? "NO — " + problem.message : "yes")")
+    let before = engine.phonemes(for: args[2], settings: settings)
+    let after = engine.phonemes(for: args[2], settings: settings, dictionary: [entry])
+    print("  before: \(before.phonemes)")
+    print("  after:  \(after.phonemes)")
+    print("  applied: \(after.applied.isEmpty ? "NOTHING — the word was not found" : after.applied.joined())")
+    if !problem.isBlocking {
+        let a = try engine.renderSentence(args[2], settings: settings)
+        let b = try engine.renderSentence(args[2], settings: settings, dictionary: [entry])
+        print(String(format: "  audio: %.2fs -> %.2fs", Audio.seconds(a, at: engine.sampleRate),
+                     Audio.seconds(b, at: engine.sampleRate)))
+    }
+
 default: fail("unknown command \(command)")
 }

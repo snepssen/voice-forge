@@ -74,6 +74,7 @@ public final class VoiceEngine: @unchecked Sendable {
     public let voice: String
 
     private nonisolated(unsafe) static let env: ORTEnv? = try? ORTEnv(loggingLevel: .warning)
+    private var defaultPhonemeCache: [String: String] = [:]
 
     /// The rate this model actually speaks at, read from its own config.
     public var sampleRate: Double { Double(config.audio.sample_rate) }
@@ -111,11 +112,13 @@ public final class VoiceEngine: @unchecked Sendable {
     /// Render a whole script, sentence by sentence, laying the requested
     /// silence between them.
     public func render(_ script: Script, settings: SynthesisSettings,
+                       dictionary: [PronunciationEntry] = [],
                        onSentence: ((Int, Int) -> Void)? = nil) throws -> [RenderedSentence] {
         var out: [RenderedSentence] = []
         for (i, sentence) in script.sentences.enumerated() {
             onSentence?(i, script.sentences.count)
-            let samples = try renderSentence(sentence.text, settings: settings)
+            let samples = try renderSentence(sentence.text, settings: settings,
+                                             dictionary: dictionary)
             // The gap that follows this sentence. A paragraph break replaces
             // the sentence gap rather than adding to it -- two silences laid
             // end to end is how a "0.6 s paragraph" quietly becomes 0.68.
@@ -144,11 +147,50 @@ public final class VoiceEngine: @unchecked Sendable {
     }
 
     /// One sentence, one inference call. Never less, never more.
-    public func renderSentence(_ text: String, settings: SynthesisSettings) throws -> [Float] {
-        let phonemized = try phonemizer.phonemize(text, dropFinalStop: settings.dropFinalFullStop)
+    public func renderSentence(_ text: String, settings: SynthesisSettings,
+                               dictionary: [PronunciationEntry] = []) throws -> [Float] {
+        let phonemized = try phonemes(for: text, settings: settings,
+                                      dictionary: dictionary).phonemes
         let ids = phonemeIDs(phonemized, settings: settings)
         guard !ids.isEmpty else { return [] }
         return try infer(ids: ids, settings: settings)
+    }
+
+    /// The phonemes a sentence will actually be spoken from, with the
+    /// dictionary applied, and which entries landed.
+    ///
+    /// `applied` is reported rather than assumed. The substitution finds a
+    /// word by phonemizing it on its own and matching that in the sentence,
+    /// which holds for ordinary prose -- "Kubrick" alone is `kˈʌbɹɪk` and it
+    /// appears verbatim in "I watched a Kubrick film" -- but stress can move in
+    /// context, and an entry that quietly does nothing is exactly the failure
+    /// this whole feature exists to stop.
+    public func phonemes(for text: String, settings: SynthesisSettings,
+                         dictionary: [PronunciationEntry] = [])
+        -> (phonemes: String, applied: Set<String>) {
+        let base = (try? phonemizer.phonemize(text, dropFinalStop: settings.dropFinalFullStop)) ?? ""
+        guard !dictionary.isEmpty else { return (base, []) }
+        var defaults: [String: String] = [:]
+        for entry in dictionary {
+            defaults[entry.key] = defaultPhonemes(for: entry.word)
+        }
+        return PronunciationDictionary.apply(dictionary, to: base, defaults: defaults)
+    }
+
+    /// What espeak says for a word on its own. Cached: a script re-rendered
+    /// with a ten-word dictionary would otherwise phonemize those ten words
+    /// once per sentence.
+    public func defaultPhonemes(for word: String) -> String {
+        let key = word.lowercased()
+        if let cached = defaultPhonemeCache[key] { return cached }
+        let value = (try? phonemizer.phonemize(word, dropFinalStop: false)) ?? ""
+        defaultPhonemeCache[key] = value
+        return value
+    }
+
+    /// The symbols this voice knows, as a set, for validating a typed entry.
+    public var vocabularySet: Set<String> {
+        Set(config.phoneme_id_map.keys.filter { $0.count == 1 })
     }
 
     /// Phonemes to model ids: BOS, PAD after every phoneme, EOS.
@@ -209,6 +251,37 @@ public final class VoiceEngine: @unchecked Sendable {
         return data.withUnsafeBytes { raw in
             Array(raw.bindMemory(to: Float.self).prefix(count))
         }
+    }
+
+    /// The IPA espeak produces for a piece of text.
+    public func phonemesFor(_ text: String, dropFinalStop: Bool = false) throws -> String {
+        try phonemizer.phonemize(text, dropFinalStop: dropFinalStop)
+    }
+
+    /// Which symbols in a phoneme string the model actually knows.
+    ///
+    /// **This is the hazard any pronunciation feature has to answer for.**
+    /// `phonemeIDs` skips an unknown symbol silently -- `guard let id =
+    /// map[key] else { continue }` -- so a phoneme string containing anything
+    /// outside the model's 161-symbol vocabulary loses those sounds with no
+    /// error anywhere. Typing an ASCII `r` where IPA wants `ɹ`, or an `ʁ` this
+    /// voice never learned, produces a word with a hole in it and no complaint.
+    public func vocabularyCheck(_ phonemes: String) -> (kept: Int, dropped: [String]) {
+        let map = config.phoneme_id_map
+        var kept = 0
+        var dropped: [String] = []
+        for scalar in phonemes.unicodeScalars {
+            let key = String(scalar)
+            if map[key] != nil { kept += 1 }
+            else if key != " " { dropped.append(key) }
+        }
+        return (kept, dropped)
+    }
+
+    /// Every symbol this voice can say, sorted. The alphabet a pronunciation
+    /// field is allowed to use.
+    public var vocabulary: [String] {
+        config.phoneme_id_map.keys.filter { $0.count == 1 }.sorted()
     }
 
     // MARK: measurement

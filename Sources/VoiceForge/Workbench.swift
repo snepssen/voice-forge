@@ -18,6 +18,9 @@ struct Workbench: View {
         .onChange(of: studio.settings) { _, _ in studio.save() }
         .onChange(of: studio.text) { _, _ in studio.save() }
         .toolbar { toolbar }
+        .sheet(isPresented: $studio.showingDictionary) {
+            DictionaryView().environmentObject(studio)
+        }
         .fileExporter(isPresented: $exporting,
                       document: WAVDocument(),
                       contentType: .wav,
@@ -42,6 +45,10 @@ struct Workbench: View {
                 .disabled(studio.rendered.isEmpty)
             Button { studio.stop() } label: { Label("Stop", systemImage: "stop.fill") }
                 .disabled(studio.rendered.isEmpty)
+            Button { studio.showingDictionary = true } label: {
+                Label("Dictionary", systemImage: "character.book.closed")
+            }
+            .help("How this voice says particular words")
             Button { exporting = true } label: { Label("Export", systemImage: "square.and.arrow.up") }
                 .disabled(studio.rendered.isEmpty)
         }

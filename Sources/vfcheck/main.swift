@@ -184,6 +184,116 @@ do {
     c.expect(rHot.heldBackByCeiling, "and the app says the target was not reached")
 } catch { c.expect(false, "export checks threw: \(error)") }
 
+// ------------------------------------------------------ pronunciation dictionary
+c.suite("pronunciation")
+do {
+    // **The real vocabulary, not a convenient fixture.** The first version of
+    // this suite invented a vocabulary that excluded ASCII `r`, so "an ASCII r
+    // is refused" passed -- against a voice where `r` is present and is the IPA
+    // alveolar trill. The fixture was asserting something untrue of the thing
+    // it stood for. These are the symbols the bundled voices actually carry.
+    let vocab: Set<String> = Set(
+        ("abcdefghijklmnopqrstuvwxyzX"
+         + "æçðøħŋœɐɑɒɓɔɕɖɗɘəɚɛɜɝɞɟɠɡɢɣɤɥɦɧɨɪɫɬɭɮɯɰɱɲɳɴɵɶɸɹɺɻɽɾʀʁʂʃʄʈʉʊʋʌʍʎʏʐʑʒʔʕʘʙʛʜʝʟʡʢʦʰʲʷ"
+         + "ˈˌːˑˤβεθχᵻⱱ"
+         + " !\"#$'(),-.0123456789:;?^_").map(String.init))
+
+    // What actually vanishes, measured against that vocabulary.
+    let slashes = PronunciationDictionary.problem(with: "/snˈɛpsən/", vocabulary: vocab)
+    c.expect(slashes.isBlocking, "the slashes a dictionary quotes IPA in are refused")
+    c.expect(slashes.message.contains("U+002F"), "and named by codepoint")
+    c.expect(slashes.message.contains("without the brackets"),
+             "with the fix said, since this is the likeliest way to get it wrong")
+
+    let capital = PronunciationDictionary.problem(with: "Snˈɛpsən", vocabulary: vocab)
+    c.expect(capital.isBlocking, "a capital letter is refused -- it has no phoneme")
+    let accent = PronunciationDictionary.problem(with: "kæfˈé", vocabulary: vocab)
+    c.expect(accent.isBlocking, "and so is accented Latin")
+
+    // Worse than dropping: punctuation the model knows *as punctuation*.
+    let dot = PronunciationDictionary.problem(with: "snˈɛp.sən", vocabulary: vocab)
+    c.expect(dot.isBlocking, "a syllable dot is refused")
+    c.expect(dot.message.contains("break the sentence"),
+             "because `.` is the full-stop phoneme, not a separator")
+    c.expect(dot.unknownSymbols.isEmpty, "and it is refused as punctuation, not as unknown")
+
+    // Present, legal, and almost certainly not meant. These warn rather than
+    // block: they are real IPA and somebody may mean them.
+    let trill = PronunciationDictionary.problem(with: "snrepsen", vocabulary: vocab)
+    c.expect(!trill.isBlocking, "an ASCII r is not blocked -- the voice really does have one")
+    c.expect(trill.hasWarning, "but it is flagged")
+    c.expect(trill.message.contains("trilled"), "as the trill it actually is")
+    c.expect(trill.message.contains("U+0279"), "with the English r offered instead")
+
+    let gee = PronunciationDictionary.problem(with: "ɡʊd ɡud", vocabulary: vocab)
+    c.expect(!gee.hasWarning, "the IPA ɡ passes without comment")
+    let asciiG = PronunciationDictionary.problem(with: "gʊd", vocabulary: vocab)
+    c.expect(asciiG.hasWarning, "and the ASCII g that looks identical is flagged")
+
+    let good = PronunciationDictionary.problem(with: "snˈɛpsən", vocabulary: vocab)
+    c.expect(!good.isBlocking && !good.hasWarning, "a clean entry passes silently")
+    c.expect(PronunciationDictionary.problem(with: "   ", vocabulary: vocab).isBlocking,
+             "an empty entry is refused")
+
+    // Scope. A project entry beats a global one for the same word.
+    let g = PronunciationEntry(word: "Snepssen", ipa: "snˈɛpsən", scope: .global)
+    let p = PronunciationEntry(word: "snepssen", ipa: "snˈɛpsɛn", scope: .project)
+    let both = PronunciationDictionary(entries: [g, p])
+    c.equal(both.effective.count, 1, "one word, one answer")
+    c.equal(both.effective.first?.ipa, "snˈɛpsɛn", "and the project entry wins")
+    c.expect(both.isShadowed(g), "the global entry is shown as shadowed")
+    c.expect(!both.isShadowed(p), "the project one is not")
+    c.equal(PronunciationDictionary(entries: [g]).effective.first?.ipa, "snˈɛpsən",
+            "with no project entry, the global one applies")
+    var off = p; off.enabled = false
+    c.equal(PronunciationDictionary(entries: [g, off]).effective.first?.ipa, "snˈɛpsən",
+            "and a disabled project entry stops shadowing")
+
+    // Substitution. These are the real strings espeak produced, measured.
+    let sentence = "ðə snˈɛpsən vˈɔɪs ɪz hˈɪɹ."
+    let r1 = PronunciationDictionary.apply(
+        [PronunciationEntry(word: "Snepssen", ipa: "snˈɛpsɛn")],
+        to: sentence, defaults: ["snepssen": "snˈɛpsən"])
+    c.equal(r1.phonemes, "ðə snˈɛpsɛn vˈɔɪs ɪz hˈɪɹ.", "the word is replaced in context")
+    c.expect(r1.applied.contains("snepssen"), "and the entry reports that it landed")
+
+    // Trailing punctuation must survive -- the sentence would otherwise lose
+    // its full stop, which is the phoneme the ending logic depends on.
+    let r2 = PronunciationDictionary.apply(
+        [PronunciationEntry(word: "Kubrick", ipa: "kˈuːbɹɪk")],
+        to: "aɪ wˈɑːtʃt ɐ kˈʌbɹɪk.", defaults: ["kubrick": "kˈʌbɹɪk"])
+    c.equal(r2.phonemes, "aɪ wˈɑːtʃt ɐ kˈuːbɹɪk.", "punctuation on the last group survives")
+
+    // A word that is not there must not be reported as applied.
+    let r3 = PronunciationDictionary.apply(
+        [PronunciationEntry(word: "Kubrick", ipa: "kˈuːbɹɪk")],
+        to: "ðə snˈɛpsən vˈɔɪs.", defaults: ["kubrick": "kˈʌbɹɪk"])
+    c.equal(r3.phonemes, "ðə snˈɛpsən vˈɔɪs.", "an absent word changes nothing")
+    c.expect(r3.applied.isEmpty, "and is not claimed to have applied")
+
+    // Whole groups only. A bare substring replace would rewrite the middle of
+    // a longer word; this is the check that pins that shut.
+    let r4 = PronunciationDictionary.apply(
+        [PronunciationEntry(word: "read", ipa: "ɹˈɛd")],
+        to: "ɹˈiːdɪŋ ɹˈiːd", defaults: ["read": "ɹˈiːd"])
+    c.equal(r4.phonemes, "ɹˈiːdɪŋ ɹˈɛd",
+            "a longer word that merely starts the same is left alone")
+
+    // Every occurrence in a sentence is replaced -- and that is the homograph
+    // limitation, stated rather than hidden: one entry cannot say "read" two
+    // ways.
+    let r5 = PronunciationDictionary.apply(
+        [PronunciationEntry(word: "read", ipa: "ɹˈɛd")],
+        to: "aɪ ɹˈiːd ɪt ænd ɹˈiːd ɪt", defaults: ["read": "ɹˈiːd"])
+    c.equal(r5.phonemes, "aɪ ɹˈɛd ɪt ænd ɹˈɛd ɪt", "every occurrence is replaced")
+
+    // Multi-word defaults: espeak turns "nginx" into two groups.
+    let r6 = PronunciationDictionary.apply(
+        [PronunciationEntry(word: "nginx", ipa: "ˈɛndʒɪnˌɛks")],
+        to: "ðə ˈɛndʒɪn ˌɛks sˈɜːvɚ", defaults: ["nginx": "ˈɛndʒɪn ˌɛks"])
+    c.equal(r6.phonemes, "ðə ˈɛndʒɪnˌɛks sˈɜːvɚ", "a word espeak split into two is matched across both")
+}
+
 // ---------------------------------------------------------------- voice notes
 // A claim attached to the wrong thing. The pace dial said "the reader's own
 // rate, measured to within 0.3%" under every voice. The measurement is real but
