@@ -1,5 +1,7 @@
 # Voice Forge
 
+**[The page →](https://snepssen.github.io/voice-forge/)**  ·  screenshots, the measurements, and the downloads.
+
 A text-to-speech tool with the synthesiser's dials on the outside, built on a
 Piper/VITS voice fine-tuned from about forty minutes of my own speech.
 
@@ -9,11 +11,14 @@ because every beat lands at the same metronomic distance — and speech lives in
 the uneven ones. So this puts the timing on the outside, measures what each
 control actually buys **per voice**, and prints the number next to the dial.
 
-    a comma on the bundled voice      145 ms
-    a comma on the other voice        457 ms
+    a comma on the bundled voice          145 ms
+    a comma on a voice not shipped here   457 ms
 
-Same speaker, three times apart. A measurement from one voice does not describe
-the other, and the app refuses to print one under the name of the other.
+Same speaker, three times apart. The second voice was trained for the meditation
+app this engine came from and stayed with it — but the gap is the point: a
+measurement taken from one voice does not describe another, so *Measure this
+voice* is a button rather than a printed constant, and the app will not print one
+voice's figure under another's name.
 
 ## Two implementations
 
