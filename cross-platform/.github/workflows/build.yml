@@ -1,0 +1,54 @@
+# Real artifacts for each platform, built on that platform.
+#
+# Cross-building from a Mac gets you part of the way and then stops: the Linux
+# app tree builds fine, but electron-builder ships an x86_64 `mksquashfs` for
+# macOS hosts, so an AppImage cannot be made on Apple Silicon at all, and NSIS
+# needs wine. Rather than nurse those workarounds, each platform builds its own.
+#
+# Nothing here publishes or auto-updates. It produces files and stops.
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win
+          - os: ubuntu-latest
+            args: --linux
+          - os: macos-latest
+            args: --mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+
+      - run: npm ci
+
+      # The checks come before the build, and the core suite runs everywhere:
+      # it loads no model, so it is the cheap gate. Parity and smoke load one,
+      # which is the point of keeping them separate.
+      - run: npm run check
+      - run: npm run parity
+      - run: npm run smoke
+
+      - run: npx electron-builder ${{ matrix.args }} --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voice-forge-${{ matrix.os }}
+          path: |
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
