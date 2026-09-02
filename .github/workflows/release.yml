@@ -17,7 +17,16 @@ permissions:
   contents: write        # only to create the release. Nothing else.
 
 jobs:
+  # Cheapest gate first: if the two builds' shared assets have drifted, the
+  # platforms will not sound alike and there is no point building either.
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-shared-assets.sh
+
   cross-platform:
+    needs: assets
     strategy:
       fail-fast: false
       matrix:
@@ -55,6 +64,7 @@ jobs:
           if-no-files-found: error
 
   macos:
+    needs: assets
     runs-on: macos-latest
     defaults:
       run: { working-directory: macos }
