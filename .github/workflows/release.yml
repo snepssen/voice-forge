@@ -1,0 +1,85 @@
+# Tag a version, get three binaries and a release.
+#
+# Each platform builds on itself, because cross-building from one host stops
+# partway: electron-builder ships an x86_64 mksquashfs for macOS hosts, so an
+# AppImage cannot be produced on Apple Silicon at all, and NSIS needs wine.
+#
+# Nothing here auto-updates anything. It produces files, attaches them to a
+# release, and stops.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write        # only to create the release. Nothing else.
+
+jobs:
+  cross-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win
+          - os: ubuntu-latest
+            args: --linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run: { working-directory: cross-platform }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: cross-platform/package-lock.json }
+      - run: npm ci
+
+      # The checks come before the build, and the cheap one comes first: the
+      # core suite loads no model, so a logic regression fails in seconds
+      # rather than after a platform build.
+      - run: npm run check
+      - run: npm run parity
+      - run: npm run smoke
+
+      - run: npx electron-builder ${{ matrix.args }} --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}
+          path: |
+            cross-platform/dist/*.exe
+            cross-platform/dist/*.AppImage
+            cross-platform/dist/*.deb
+            cross-platform/dist/*.tar.gz
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    defaults:
+      run: { working-directory: macos }
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./build.sh            # runs vfcheck first and fails the build on a red suite
+      - name: Package the app
+        run: ditto -c -k --keepParent "Voice Forge.app" "Voice-Forge-macOS.zip"
+      - uses: actions/upload-artifact@v4
+        with: { name: macos, path: macos/Voice-Forge-macOS.zip, if-no-files-found: error }
+
+  publish:
+    needs: [cross-platform, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - run: find artifacts -type f | sort
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          draft: true          # look at it before anybody else does
+          body: |
+            Built from this tag. Every platform builds on itself and every
+            check suite runs first.
+
+            **Windows is untested.** It is configured and it builds; nobody has
+            run it. If you do, tell me what happened — @snepssen on Telegram.

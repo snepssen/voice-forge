@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A text-to-speech tool with the synthesiser’s dials on the outside, built on a voice trained from about forty minutes of my own speech.">
+<title>Voice Forge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Dark-first: the subject is an audio instrument, and the app itself is dark.
+   :root carries the dark palette; light is redefined at token level only. */
+:root{
+  --ground:#15160E; --surface:#1E1F16; --raise:#262719; --line:#33342A;
+  --ink:#F2F0E4; --muted:#94917A;
+  --signal:#E9B04A;            /* VU-lamp amber — the one accent */
+  --verified:#9FD356; --open:#E2703A;
+  --shadow:0 1px 0 rgba(255,255,255,.03);
+  --measure:66ch;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --ground:#F6F4EA; --surface:#EFEDE1; --raise:#E7E4D5; --line:#D9D6C4;
+    --ink:#15160E; --muted:#6C6955;
+    --signal:#8A5F06; --verified:#456818; --open:#A03F17;
+    --shadow:0 1px 0 rgba(0,0,0,.03);
+  }
+}
+:root[data-theme="light"]{
+  --ground:#F6F4EA; --surface:#EFEDE1; --raise:#E7E4D5; --line:#D9D6C4;
+  --ink:#15160E; --muted:#6C6955;
+  --signal:#8A5F06; --verified:#456818; --open:#A03F17;
+  --shadow:0 1px 0 rgba(0,0,0,.03);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font:400 17px/1.62 Newsreader,Georgia,"Times New Roman",serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+h1,h2,h3,.ui{font-family:"Bricolage Grotesque","Helvetica Neue",Arial,sans-serif}
+.mono,code{font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace}
+.ipa{font-family:"Doulos SIL","Charis SIL",Gentium,"DejaVu Sans","Lucida Grande",serif}
+a{color:var(--signal);text-decoration-thickness:1px;text-underline-offset:3px}
+a:focus-visible,button:focus-visible{outline:2px solid var(--signal);outline-offset:3px}
+p{margin:0 0 1.05em;max-width:var(--measure)}
+.lede{font-size:20px;color:var(--ink)}
+.eyebrow{
+  font-family:"Bricolage Grotesque",sans-serif;font-size:11px;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:0 0 14px;
+}
+
+/* ---------------------------------------------------------------- masthead */
+header{padding:78px 0 0;border-bottom:1px solid var(--line)}
+.badge{
+  display:inline-flex;align-items:center;gap:8px;font-family:"Bricolage Grotesque",sans-serif;
+  font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);border:1px solid var(--line);border-radius:2px;padding:5px 10px;
+}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--verified)}
+h1{
+  font-size:clamp(52px,9vw,104px);font-weight:800;line-height:.94;
+  letter-spacing:-.035em;margin:26px 0 0;text-wrap:balance;
+}
+.say{
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:14px;
+  margin:22px 0 0;padding:0 0 6px;
+}
+.say .k{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+  font-family:"Bricolage Grotesque",sans-serif;font-weight:600}
+.say .v{font-size:clamp(24px,4vw,38px);color:var(--signal);letter-spacing:.01em}
+.subhead{margin:26px 0 0;font-size:21px;line-height:1.5;max-width:58ch}
+.headmeta{
+  display:flex;flex-wrap:wrap;gap:10px 26px;margin:34px 0 0;padding:18px 0 42px;
+  border-top:1px solid var(--line);
+}
+.headmeta span{font-size:13px;color:var(--muted);font-family:"Bricolage Grotesque",sans-serif}
+.headmeta b{color:var(--ink);font-weight:600}
+
+section{padding:64px 0;border-bottom:1px solid var(--line)}
+section:last-of-type{border-bottom:0}
+h2{font-size:clamp(28px,4vw,40px);font-weight:600;letter-spacing:-.02em;margin:0 0 8px;text-wrap:balance}
+h3{font-size:19px;font-weight:600;letter-spacing:-.01em;margin:0 0 6px}
+
+/* --------------------------------------------------------------- readouts */
+/* Instrument readout: a measured value, its unit, and what it is of. The
+   figures are the argument, so they are set as the largest thing in the row. */
+.readout{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);margin:26px 0 0}
+.readout.two{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.readout.three{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.cell{background:var(--surface);padding:20px 22px}
+.cell .n{
+  font-family:"IBM Plex Mono",monospace;font-size:30px;font-weight:500;
+  color:var(--signal);letter-spacing:-.02em;font-variant-numeric:tabular-nums;
+}
+.cell .n small{font-size:15px;color:var(--muted);margin-left:3px;font-weight:400}
+.cell .l{font-size:14px;color:var(--muted);margin-top:5px;line-height:1.4}
+.cell .l b{color:var(--ink);font-weight:500}
+
+/* ------------------------------------------------------------------ plates */
+.shot{margin:30px 0 0;border:1px solid var(--line);background:var(--surface);padding:10px}
+.shot img{display:block;width:100%;height:auto}
+.cap{font-size:14px;color:var(--muted);margin:10px 2px 0;max-width:70ch}
+.pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:22px;margin:30px 0 0}
+.pair .shot{margin:0}
+
+/* ------------------------------------------------------------------ table */
+.tablewrap{overflow-x:auto;margin:26px 0 0}
+table{border-collapse:collapse;width:100%;min-width:540px;font-size:15px}
+th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:"Bricolage Grotesque",sans-serif;font-size:11px;font-weight:600;
+   letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+td.mono{font-variant-numeric:tabular-nums}
+.pill{
+  display:inline-block;font-family:"Bricolage Grotesque",sans-serif;font-size:11px;
+  font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;
+  border:1px solid currentColor;border-radius:2px;white-space:nowrap;
+}
+.pill.ok{color:var(--verified)} .pill.todo{color:var(--open)}
+
+/* -------------------------------------------------------------- downloads */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);margin:28px 0 0}
+.card{background:var(--surface);padding:24px 22px;display:flex;flex-direction:column;gap:9px}
+.card h3{margin:0}
+.card .meta{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--muted)}
+.card p{font-size:15px;margin:0;color:var(--muted)}
+.card .get{
+  margin-top:auto;padding-top:14px;font-family:"Bricolage Grotesque",sans-serif;
+  font-weight:600;font-size:14px;
+}
+.note{
+  border-left:2px solid var(--signal);padding:2px 0 2px 18px;margin:26px 0 0;
+  font-size:16px;color:var(--muted);max-width:var(--measure);
+}
+.note b{color:var(--ink);font-weight:500}
+
+/* ------------------------------------------------------------------ steps */
+ol.steps{counter-reset:s;list-style:none;padding:0;margin:24px 0 0;max-width:var(--measure)}
+ol.steps li{counter-increment:s;position:relative;padding:0 0 20px 46px}
+ol.steps li::before{
+  content:counter(s);position:absolute;left:0;top:1px;width:28px;height:28px;
+  display:grid;place-items:center;border:1px solid var(--line);border-radius:50%;
+  font-family:"IBM Plex Mono",monospace;font-size:13px;color:var(--signal);
+}
+ol.steps b{font-family:"Bricolage Grotesque",sans-serif;font-weight:600}
+pre{
+  background:var(--surface);border:1px solid var(--line);padding:14px 16px;margin:14px 0 0;
+  overflow-x:auto;font-family:"IBM Plex Mono",monospace;font-size:13px;line-height:1.6;
+}
+
+/* ---------------------------------------------------------------- contact */
+.contact{display:flex;flex-wrap:wrap;gap:14px;margin:26px 0 0}
+.contact a{
+  display:inline-flex;align-items:center;gap:9px;text-decoration:none;color:var(--ink);
+  border:1px solid var(--line);background:var(--surface);padding:12px 18px;
+  font-family:"Bricolage Grotesque",sans-serif;font-weight:600;font-size:15px;
+}
+.contact a:hover{border-color:var(--signal);color:var(--signal)}
+footer{padding:44px 0 70px;color:var(--muted);font-size:14px}
+
+@media (max-width:720px){
+  header{padding-top:52px}
+  section{padding:48px 0}
+  body{font-size:16px}
+}
+@media (prefers-reduced-motion:no-preference){
+  .card,.contact a{transition:border-color .16s ease,color .16s ease}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+<header>
+  <span class="badge"><span class="dot"></span>macOS &amp; Linux verified · Windows built, untested</span>
+  <h1>Voice&nbsp;Forge</h1>
+  <div class="say">
+    <span class="k">it says</span>
+    <span class="v ipa">snˈɛpsən</span>
+    <span class="k">in my voice</span>
+  </div>
+  <p class="subhead">A text-to-speech tool with the synthesiser’s dials on the outside — built on a voice trained from about forty minutes of my own speech.</p>
+  <div class="headmeta">
+    <span><b>One bundled voice</b> · 22,050 Hz</span>
+    <span><b>~30×</b> realtime</span>
+    <span><b>No network.</b> Enforced at the socket layer</span>
+    <span><b>280</b> checks across two implementations</span>
+  </div>
+</header>
+
+<section>
+  <p class="eyebrow">Why it exists</p>
+  <h2>The interesting part isn’t the voice. It’s the timing.</h2>
+  <p class="lede">Most text-to-speech hides the machine and gives you a speed slider. That’s the wrong dial. A synthesised read sounds wrong not because the timbre is off but because every beat lands at the same metronomic distance — and speech lives in the uneven ones.</p>
+  <p>So this app puts the timing on the outside: how long a comma is worth, how much silence sits between two sentences, how much room a paragraph gets. Then it measures what those controls actually buy, per voice, and prints the number next to the dial.</p>
+  <div class="note"><b>Every figure on this page was measured, not estimated.</b> Where something has not been tested, it says so.</div>
+</section>
+
+<section>
+  <p class="eyebrow">Measured</p>
+  <h2>What a comma is worth</h2>
+  <p>Piper has no pause table. A comma reaches the model as a phoneme like any other and the duration predictor decides on the spot. The only honest way to answer is to render a line with the mark and the same line without, and subtract.</p>
+  <div class="readout three">
+    <div class="cell"><div class="n">145<small>ms</small></div><div class="l">a <b>comma</b> on the bundled voice</div></div>
+    <div class="cell"><div class="n">190<small>ms</small></div><div class="l">a <b>colon</b>, same voice</div></div>
+    <div class="cell"><div class="n">457<small>ms</small></div><div class="l">a <b>comma</b> on the other voice</div></div>
+  </div>
+  <p style="margin-top:26px">Two voices from the same speaker, three times apart at a comma — and 194 words a minute against 148 on identical copy. A measurement from one does not describe the other, so the app refuses to print one voice’s figure under another.</p>
+  <div class="readout two">
+    <div class="cell"><div class="n">−19.99<small>LUFS</small></div><div class="l">a 1 kHz tone at −20 dBFS RMS, at 48 kHz — the loudness meter is real <b>ITU-R BS.1770-4</b>, not an approximation</div></div>
+    <div class="cell"><div class="n">−19.96<small>LUFS</small></div><div class="l">the same tone at <b>22.05 kHz</b> — the filters are derived per rate, never copied from the published 48 kHz table</div></div>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">The app</p>
+  <h2>Dials, and what they cost</h2>
+  <div class="shot"><img src="img/voice-forge.png" alt="Voice Forge showing a rendered script broken into sentences, with pause and model controls on the right"></div>
+  <p class="cap">Left: the script, and what it became — every sentence with its length, pace and peak, playable and re-rollable on its own. Right: the dials, each with the measured consequence printed underneath.</p>
+  <div class="pair">
+    <div class="shot"><img src="img/light.png" alt="The same app in its light theme"></div>
+    <div class="shot"><img src="img/cross-platform.png" alt="The cross-platform build, identical in layout"></div>
+  </div>
+  <p class="cap">Light and dark, and the cross-platform build beside it. The interface is drawn rather than borrowed from a toolkit, so it is the same on every platform instead of three apps that happen to share a name.</p>
+
+  <h3 style="margin-top:52px">You say potato</h3>
+  <p>espeak gets most words right unaided — it manages <em>Siobhan</em> without help. What breaks is proper nouns, brand names, acronyms, and the words people simply disagree about. So the dictionary starts from the words in <em>your</em> script rather than an empty box, and it takes IPA, because IPA is exactly what the model consumes. What you type is what it is handed.</p>
+  <div class="shot"><img src="img/pronunciation.png" alt="The pronunciation table: the word potato, what espeak says for it, an IPA override, and a green line confirming it applies in 2 of 2 sentences"></div>
+  <p class="cap">Left, what espeak says. Right, what you want instead. The green line is the part that earns its keep: it runs the substitution and reports where it actually <em>landed</em>, because stress shifts in context and an entry that quietly does nothing is the exact failure this feature exists to prevent. Entries are global by default, with per-script overrides that shadow them.</p>
+  <div class="note">Every character is checked against the voice’s own <b>161 symbols</b> before it reaches the model. The <code>/slashes/</code> you would paste from a dictionary are refused, and so is a syllable dot — to this model <code>.</code> is the full-stop phoneme, so it would break the sentence in half mid-word. An ASCII <code>r</code> only warns: it is the trilled <span class="ipa">r</span> of Spanish, real IPA, and somebody might mean it.</div>
+</section>
+
+<section>
+  <p class="eyebrow">Three things it does that other tools don’t</p>
+  <h2>Pauses, pronunciation, and an honest export</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Pause control that admits its units</h3>
+      <p>Silence between sentences is exact — they are separate calls to the model. A comma is not: it happens <em>inside</em> one call, so the app hands the model more room and measures what that buys, rather than promising milliseconds it cannot deliver.</p>
+    </div>
+    <div class="card">
+      <h3>A pronunciation dictionary in IPA</h3>
+      <p>Global entries with per-script overrides. Every character is checked against the voice’s own 161 symbols, because the phoneme mapper <em>silently drops</em> what it doesn’t know — the slashes you’d paste from a dictionary vanish without a word.</p>
+    </div>
+    <div class="card">
+      <h3>Export that tells you before, not after</h3>
+      <p>A dry voice sits near −24 LUFS with peaks around −6 dBFS, so a −14 streaming target needs gain the true-peak ceiling won’t allow. The app shows you that <em>before</em> you export, and says the shortfall in dB.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">Downloads</p>
+  <h2>Get it</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>macOS</h3>
+      <div class="meta">Apple Silicon · 117 MiB</div>
+      <p>The native build. SwiftUI, ONNX Runtime, a vendored espeak-ng.</p>
+      <div class="get"><a href="https://github.com/REPLACE-WITH-YOUR-USERNAME/voice-forge/releases/latest/download/Voice-Forge-macOS.zip">Download .app →</a></div>
+    </div>
+    <div class="card">
+      <h3>Linux</h3>
+      <div class="meta">x86-64 · 189 MB · tar.gz</div>
+      <p>Extract and run <code>./voice-forge</code>. Verified on SteamOS.</p>
+      <div class="get"><a href="https://github.com/REPLACE-WITH-YOUR-USERNAME/voice-forge/releases/latest/download/Voice-Forge-linux-x64.tar.gz">Download archive →</a></div>
+    </div>
+    <div class="card">
+      <h3>Windows</h3>
+      <div class="meta">x64 · NSIS installer</div>
+      <p>Built and configured. Nobody has run it yet — if you do, tell me what happened.</p>
+      <div class="get"><a href="https://github.com/REPLACE-WITH-YOUR-USERNAME/voice-forge/releases/latest/download/Voice-Forge-Setup-x64.exe">Download installer →</a></div>
+    </div>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Platform</th><th>Build</th><th>Status</th><th>What was checked</th></tr></thead>
+      <tbody>
+        <tr><td>macOS 15, Apple Silicon</td><td>Swift / SwiftUI</td><td><span class="pill ok">Verified</span></td>
+            <td>Development, all suites, packaged app, real voiceover exported</td></tr>
+        <tr><td>SteamOS 3, Steam Deck</td><td class="mono">Electron / TypeScript</td><td><span class="pill ok">Verified</span></td>
+            <td>Launches, renders, plays, exports — and sounds right, which is the check that matters</td></tr>
+        <tr><td>Windows 10 / 11</td><td class="mono">Electron / TypeScript</td><td><span class="pill todo">Untested</span></td>
+            <td>Packaging configured, CI written, binary never executed</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">The Linux pass raises the odds for Windows: it proved the parts most likely to be platform-sensitive — the ONNX native binary, the WebAssembly phonemizer, espeak data loading by path, audio out. What’s genuinely untried on Windows is path handling and the installer.</div>
+</section>
+
+<section>
+  <p class="eyebrow">Your own voice</p>
+  <h2>The app will use any Piper voice you give it</h2>
+  <p>One voice ships, and it isn’t privileged: drop a Piper <code>.onnx</code> and its <code>.onnx.json</code> into the voices folder and it appears in the picker. Install one named the same as the bundled voice and yours wins.</p>
+  <ol class="steps">
+    <li><b>Record 30–60 minutes</b> of your own clean speech, reading prepared text. Consistency beats quantity — one microphone, one room, one session.</li>
+    <li><b>Cut it into clips at silence, never mid-word,</b> and don’t trim tight. This is the step that decides whether it sounds like you, and the one most guides cover in a sentence.</li>
+    <li><b>Fine-tune from a pretrained checkpoint.</b> Measure iterations per second over one partial epoch before committing days — a wrong batch size doesn’t fail, it quietly takes a month.</li>
+    <li><b>Export to ONNX, install, and measure it.</b> The pause figures are per voice and don’t transfer.</li>
+  </ol>
+  <p style="margin-top:22px">The full guide ships inside the app and carries this project’s own measurements rather than generic advice — including the batch-size cliff that cost seventeen times the training speed for one power of two.</p>
+</section>
+
+<section>
+  <p class="eyebrow">How it’s built</p>
+  <h2>Two implementations, one set of measurements</h2>
+  <p>The Mac app is Swift and stays Swift. Everywhere else is Electron and TypeScript, with the interface drawn in HTML so it looks the same rather than borrowing a platform toolkit. The engine is Piper/VITS through ONNX Runtime, with espeak-ng for phonemes.</p>
+  <div class="readout three">
+    <div class="cell"><div class="n">161</div><div class="l">checks on the <b>Swift</b> core</div></div>
+    <div class="cell"><div class="n">119</div><div class="l">on the <b>TypeScript</b> core, deliberately the same assertions</div></div>
+    <div class="cell"><div class="n">18</div><div class="l"><b>parity</b> checks holding the two engines to each other</div></div>
+  </div>
+  <p style="margin-top:26px">The parity suite is the one that matters. Phonemes are compared byte-for-byte and durations to the millisecond — 1.637 s against 1.637 s, 4.888 s against 4.888 s, with the duration predictor made deterministic so the comparison means something.</p>
+  <h3 style="margin-top:34px">One finding worth the whole exercise</h3>
+  <p>The npm phonemizer bundles a newer espeak-ng whose American English rules moved the NORTH/FORCE vowel from <span class="ipa">ɔːɹ</span> to <span class="ipa">oːɹ</span>. Across 35 ordinary words, 8 differed — <em>four, before, more, door, important, course, report, support</em> — and the model was trained on the first. Shipping the Mac build’s espeak data with the WebAssembly makes it byte-identical again.</p>
+  <p>It fails <em>open</em>: point it at the wrong directory and nothing errors. The app runs, speaks, and is wrong in some of the commonest words in English. Eight parity checks own those words for exactly that reason.</p>
+  <h3 style="margin-top:34px">It makes no network connections</h3>
+  <p>No updater, no crash reporter, no analytics. Chromium’s background chatter is switched off by name, and the socket layer refuses any non-loopback connection outright. The check that proves it was itself proved: a deliberately planted request had to make it fail before the passing result was believed.</p>
+</section>
+
+<section>
+  <p class="eyebrow">Get in touch</p>
+  <h2>If it stops working, tell me</h2>
+  <p>There’s no updater and no crash reporter, which is deliberate — and it means a failure has no way of reaching me on its own. The app has a Help sheet that copies its version, platform and voices to the clipboard for you to read before you send it. Your script and your dictionary are never in it.</p>
+  <div class="contact">
+    <a href="https://t.me/snepssen">Message on Telegram</a>
+    <a href="mailto:snepssen@proton.me">Email</a>
+  </div>
+</section>
+
+<footer>
+  Voice Forge · one bundled voice, trained on about forty minutes of my own speech ·
+  built with Piper/VITS, ONNX Runtime and espeak-ng.
+</footer>
+
+</div>
+
+</body>
+</html>
