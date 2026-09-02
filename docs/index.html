@@ -130,6 +130,43 @@ section[id],header[id]{scroll-margin-top:58px}
   .jump ul{gap:18px}
 }
 
+/* -------------------------------------------------------------- installer */
+/* The one-liner leads the section because it is the path that works: it picks
+   the right build for the machine, verifies the SHA-256 against the release,
+   and on macOS clears the quarantine flag that would otherwise have Gatekeeper
+   refuse an ad-hoc-signed app. The manual downloads stay underneath for anyone
+   who would rather not pipe a script into a shell -- which is a reasonable
+   thing not to want. */
+/* minmax(0,1fr) and min-width:0 are load-bearing. A grid item's default
+   min-width is auto, meaning "never shrink below your content" -- and the
+   content here is an 86-character command that does not wrap. Without these the
+   track widens to fit it and takes the whole page sideways with it: measured at
+   741px of card inside a 697px viewport, with the body scrolling horizontally.
+   The command is meant to scroll inside its own box, which is what the pre does. */
+.install{
+  display:grid;grid-template-columns:minmax(0,1fr);gap:1px;
+  background:var(--line);border:1px solid var(--line);margin:26px 0 0;
+}
+.cmd{background:var(--surface);padding:16px 18px 18px;min-width:0}
+.cmdhead{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.os{
+  font-family:"Bricolage Grotesque",sans-serif;font-size:11px;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+}
+.cmd pre{margin:10px 0 0;background:var(--ground);min-width:0}
+.copy{
+  font-family:"Bricolage Grotesque",sans-serif;font-size:11px;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+  background:transparent;border:1px solid var(--line);border-radius:2px;
+  padding:5px 11px;cursor:pointer;white-space:nowrap;
+}
+.copy:hover{color:var(--signal);border-color:var(--signal)}
+.copy[data-state="done"]{color:var(--verified);border-color:var(--verified)}
+h3.handoff{
+  margin:40px 0 14px;font-size:13px;font-weight:600;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--muted);
+}
+
 section{padding:64px 0;border-bottom:1px solid var(--line)}
 section:last-of-type{border-bottom:0}
 h2{font-size:clamp(28px,4vw,40px);font-weight:600;letter-spacing:-.02em;margin:0 0 8px;text-wrap:balance}
@@ -318,6 +355,36 @@ footer{padding:44px 0 70px;color:var(--muted);font-size:14px}
 <section id="downloads">
   <p class="eyebrow">Downloads</p>
   <h2>Get it</h2>
+  <p class="lede">One line in a terminal. It asks GitHub for the latest release,
+  takes the single build for that machine, checks its SHA-256 against the
+  checksums published in the same release, and unpacks it. No sudo, and nothing
+  written outside the paths it prints.</p>
+
+  <div class="install">
+    <div class="cmd">
+      <div class="cmdhead">
+        <span class="os">macOS &amp; Linux</span>
+        <button class="copy" type="button">Copy</button>
+      </div>
+      <pre><code>curl -fsSL https://raw.githubusercontent.com/snepssen/voice-forge/main/install.sh | sh</code></pre>
+    </div>
+    <div class="cmd">
+      <div class="cmdhead">
+        <span class="os">Windows · PowerShell</span>
+        <button class="copy" type="button">Copy</button>
+      </div>
+      <pre><code>irm https://raw.githubusercontent.com/snepssen/voice-forge/main/install.ps1 | iex</code></pre>
+    </div>
+  </div>
+
+  <div class="note">Piping a remote script into a shell is exactly the thing
+  worth being suspicious of, so read it first — both are short and do nothing
+  clever: <a href="https://github.com/snepssen/voice-forge/blob/main/install.sh">install.sh</a>
+  · <a href="https://github.com/snepssen/voice-forge/blob/main/install.ps1">install.ps1</a>.
+  On macOS it also clears the download quarantine flag, because the app is signed
+  ad-hoc rather than notarised and Gatekeeper would otherwise refuse to open it.</div>
+
+  <h3 class="handoff">Or take a build by hand</h3>
   <div class="grid">
     <div class="card">
       <h3>macOS</h3>
@@ -401,5 +468,43 @@ footer{padding:44px 0 70px;color:var(--muted);font-size:14px}
 
 </div>
 
+<script>
+/* Copy button. The command scrolls horizontally in its box, so selecting it by
+   hand is fiddly -- which is the whole reason this is worth a script on an
+   otherwise static page. Clipboard access can be refused (insecure context, or
+   a browser that declines), so failure selects the text instead of silently
+   doing nothing. */
+document.querySelectorAll(".copy").forEach(function (button) {
+  var code = button.closest(".cmd").querySelector("code");
+  var timer;
+  function flash(label, state) {
+    clearTimeout(timer);
+    button.textContent = label;
+    if (state) { button.dataset.state = state; } else { delete button.dataset.state; }
+    timer = setTimeout(function () {
+      button.textContent = "Copy";
+      delete button.dataset.state;
+    }, 1800);
+  }
+  function selectInstead() {
+    var range = document.createRange();
+    range.selectNodeContents(code);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    flash("Selected", null);
+  }
+  button.addEventListener("click", function () {
+    var text = code.textContent.trim();
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () {
+        flash("Copied", "done");
+      }, selectInstead);
+    } else {
+      selectInstead();
+    }
+  });
+});
+</script>
 </body>
 </html>
