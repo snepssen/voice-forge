@@ -80,6 +80,56 @@ h1{
 .headmeta span{font-size:13px;color:var(--muted);font-family:"Bricolage Grotesque",sans-serif}
 .headmeta b{color:var(--ink);font-weight:600}
 
+/* ------------------------------------------------------------ section jump */
+/* Sticks *under* the masthead rather than over it: the first thing on the page
+   should be the page, not its navigation. Set in the same uppercase Bricolage
+   as .eyebrow so it belongs to the system already here rather than announcing
+   itself as a separate component.
+
+   No active-section indicator on purpose. The bar names three of eight
+   sections, so a highlight would be wrong for the other five -- it would look
+   like state while telling the reader something untrue. */
+.jump{
+  position:sticky; top:0; z-index:20;
+  background:var(--ground); border-bottom:1px solid var(--line);
+}
+/* Translucency only where the blur behind it actually works. If color-mix is
+   unsupported the declaration is dropped and the opaque rule above stands. */
+@supports (backdrop-filter:blur(10px)){
+  .jump{
+    background:color-mix(in srgb, var(--ground) 84%, transparent);
+    backdrop-filter:blur(10px);
+  }
+}
+.jump .wrap{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:20px; height:46px;
+}
+.jump ul{display:flex; gap:26px; margin:0; padding:0; list-style:none}
+.jump a{
+  font-family:"Bricolage Grotesque",sans-serif; font-size:11px; font-weight:600;
+  letter-spacing:.16em; text-transform:uppercase; text-decoration:none;
+  color:var(--muted); white-space:nowrap;
+}
+.jump .mark{color:var(--ink); letter-spacing:.1em}
+.jump a:hover{color:var(--signal)}
+
+/* Clear the bar so a jumped-to heading is not sitting underneath it. */
+section[id],header[id]{scroll-margin-top:58px}
+/* No scroll-behavior:smooth. Animating ~4,700px on a page this tall is slow,
+   and worse, the animation is cancellable: interrupt it and the visitor is left
+   partway down with the hash already changed, which is a worse outcome than the
+   instant jump anchors have always done. Measured -- with smooth on, a click on
+   Screenshots settled at 110px instead of 1,715px. */
+
+/* The wordmark is the first thing to go when the row runs out of room --
+   it is the one item that is not a destination. */
+@media (max-width:520px){
+  .jump .mark{display:none}
+  .jump .wrap{justify-content:center}
+  .jump ul{gap:18px}
+}
+
 section{padding:64px 0;border-bottom:1px solid var(--line)}
 section:last-of-type{border-bottom:0}
 h2{font-size:clamp(28px,4vw,40px);font-weight:600;letter-spacing:-.02em;margin:0 0 8px;text-wrap:balance}
@@ -176,7 +226,7 @@ footer{padding:44px 0 70px;color:var(--muted);font-size:14px}
 
 <div class="wrap">
 
-<header>
+<header id="top">
   <span class="badge"><span class="dot"></span>macOS &amp; Linux verified · Windows built, untested</span>
   <h1>Voice&nbsp;Forge</h1>
   <div class="say">
@@ -192,6 +242,17 @@ footer{padding:44px 0 70px;color:var(--muted);font-size:14px}
     <span><b>280</b> checks across two implementations</span>
   </div>
 </header>
+
+<nav class="jump" aria-label="Jump to a section">
+  <div class="wrap">
+    <a class="mark" href="#top">Voice&nbsp;Forge</a>
+    <ul>
+      <li><a href="#screenshots">Screenshots</a></li>
+      <li><a href="#downloads">Downloads</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ul>
+  </div>
+</nav>
 
 <section>
   <p class="eyebrow">Why it exists</p>
@@ -217,7 +278,7 @@ footer{padding:44px 0 70px;color:var(--muted);font-size:14px}
   </div>
 </section>
 
-<section>
+<section id="screenshots">
   <p class="eyebrow">The app</p>
   <h2>Dials, and what they cost</h2>
   <div class="shot"><img src="img/voice-forge.png" alt="Voice Forge showing a rendered script broken into sentences, with pause and model controls on the right"></div>
@@ -254,7 +315,7 @@ footer{padding:44px 0 70px;color:var(--muted);font-size:14px}
   </div>
 </section>
 
-<section>
+<section id="downloads">
   <p class="eyebrow">Downloads</p>
   <h2>Get it</h2>
   <div class="grid">
@@ -323,7 +384,7 @@ footer{padding:44px 0 70px;color:var(--muted);font-size:14px}
   <p>No updater, no crash reporter, no analytics. Chromium’s background chatter is switched off by name, and the socket layer refuses any non-loopback connection outright. The check that proves it was itself proved: a deliberately planted request had to make it fail before the passing result was believed.</p>
 </section>
 
-<section>
+<section id="contact">
   <p class="eyebrow">Get in touch</p>
   <h2>If it stops working, tell me</h2>
   <p>There’s no updater and no crash reporter, which is deliberate — and it means a failure has no way of reaching me on its own. The app has a Help sheet that copies its version, platform and voices to the clipboard for you to read before you send it. Your script and your dictionary are never in it.</p>
