@@ -67,7 +67,7 @@
           ]
         }
       ],
-      "artifactName": "Voice-Forge-${version}-${arch}.${ext}"
+      "artifactName": "Voice-Forge-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -100,7 +100,7 @@
       ],
       "category": "AudioVideo",
       "synopsis": "Text to speech with its dials on the outside",
-      "artifactName": "Voice-Forge-${version}-${arch}.${ext}"
+      "artifactName": "Voice-Forge-${arch}.${ext}"
     },
     "mac": {
       "target": [
