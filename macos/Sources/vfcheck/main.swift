@@ -393,8 +393,8 @@ do {
     c.expect(rode.contains("0.3%"), "rode says it is a measured likeness")
     c.expect(!bundled.contains("0.3%"),
              "suno does not claim a likeness nobody measured for it")
-    c.expect(bundled.contains("where it was trained"),
-             "and says plainly what 1.0 means for it instead")
+    c.expect(bundled.contains("performance rather than a likeness"),
+             "and says the bundled voice is a performance, not a failed likeness")
     c.expect(rode != bundled, "the two voices do not say the same thing at 1.0")
 
     // An unknown voice must not be given somebody else's numbers either.

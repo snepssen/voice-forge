@@ -21,7 +21,7 @@ export interface VoiceNote {
 export const voiceNotes: VoiceNote[] = [
   {
     name: "snepssen",
-    summary: "The voice this app ships with. Measured on ordinary prose: 194 words a minute, commas worth about 145 ms.",
+    summary: "The voice this app ships with: the performing one, stylised rather than a likeness, and chosen for that. Measured on ordinary prose at 194 words a minute, with commas worth about 145 ms.",
     paceReference: null,
     typicalWPM: 194,
   },
@@ -42,7 +42,7 @@ export function paceNote(voice: string, lengthScale: number): string {
   const reference = noteFor(voice)?.paceReference ?? null;
   if (atOne) {
     return reference
-      ?? "This voice's own rate — where it was trained, not a likeness anybody has measured against a reference recording.";
+      ?? "This voice's own rate — where it was trained. It is a performance rather than a likeness, so there is no reference recording to be measured against, and that is the point of it.";
   }
   const percent = Math.round((lengthScale - 1) * 100);
   const base = percent > 0 ? `${percent}% slower` : `${-percent}% faster`;

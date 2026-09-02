@@ -35,7 +35,7 @@ public enum VoiceNotes {
     /// installs is not in here and must not borrow anybody's numbers.
     public static let all: [VoiceNote] = [
         .init(name: "snepssen",
-              summary: "The voice this app ships with. Measured on ordinary prose: 194 words a minute, commas worth about 145 ms.",
+              summary: "The voice this app ships with: the performing one, stylised rather than a likeness, and chosen for that. Measured on ordinary prose at 194 words a minute, with commas worth about 145 ms.",
               paceReference: nil,
               typicalWPM: 194),
         // Kept because it is a voice somebody may still have installed, and a
@@ -57,7 +57,7 @@ public enum VoiceNotes {
         let reference = note(voice)?.paceReference
         if atOne {
             return reference
-                ?? "This voice's own rate — where it was trained, not a likeness anybody has measured against a reference recording."
+                ?? "This voice's own rate — where it was trained. It is a performance rather than a likeness, so there is no reference recording to be measured against, and that is the point of it."
         }
         let percent = Int(((v - 1.0) * 100).rounded())
         let base = percent > 0 ? "\(percent)% slower" : "\(-percent)% faster"
