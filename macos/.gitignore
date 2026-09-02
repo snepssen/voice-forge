@@ -1,0 +1,7 @@
+.build/
+.dd/
+*.app/
+*.log
+.DS_Store
+calibration-*.json
+take*.wav

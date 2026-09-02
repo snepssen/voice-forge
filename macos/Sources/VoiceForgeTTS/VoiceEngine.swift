@@ -1,0 +1,413 @@
+import Foundation
+import OnnxRuntimeBindings
+import VoiceForgeCore
+
+/// The bundled voice's config.json — the exact fields `piper.voice.PiperVoice`
+/// reads, decoded the same way.
+struct PiperVoiceConfig: Decodable {
+    struct Audio: Decodable { var sample_rate: Int }
+    struct Espeak: Decodable { var voice: String }
+    struct Inference: Decodable {
+        var noise_scale: Double
+        var length_scale: Double
+        var noise_w: Double
+    }
+    var audio: Audio
+    var espeak: Espeak
+    var inference: Inference
+    var phoneme_id_map: [String: [Int]]
+}
+
+public enum VoiceEngineError: LocalizedError {
+    case noEnvironment
+    case noModel(String)
+    case noOutput
+    case resampler(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .noEnvironment: "The ONNX runtime failed to start."
+        case .noModel(let v): "No bundled model for the voice \"\(v)\"."
+        case .noOutput: "The model produced no output."
+        case .resampler(let why): "Resampling failed: \(why)."
+        }
+    }
+}
+
+/// One rendered sentence, with everything measured about it.
+///
+/// The app shows these per sentence rather than only as a finished take,
+/// because the whole point of this tool is being able to see which line is the
+/// one running long or landing quiet.
+public struct RenderedSentence: Sendable {
+    public var id: Int
+    public var text: String
+    public var samples: [Float]
+    /// Silence laid *after* this sentence before the next one begins.
+    public var trailingGap: Double
+    public var seconds: Double
+    public var peakDBFS: Double
+    /// Words per minute over this sentence alone, silence included.
+    public var wordsPerMinute: Double
+
+    public init(id: Int, text: String, samples: [Float], trailingGap: Double,
+                seconds: Double, peakDBFS: Double, wordsPerMinute: Double) {
+        self.id = id; self.text = text; self.samples = samples
+        self.trailingGap = trailingGap; self.seconds = seconds
+        self.peakDBFS = peakDBFS; self.wordsPerMinute = wordsPerMinute
+    }
+}
+
+/// The synthesiser, with its dials on the outside.
+///
+/// The engine itself is Gateway Forge's, copied rather than shared, and the
+/// two decisions it arrived at by measurement are kept as defaults rather than
+/// as constants: one inference call per sentence, and two trailing padding
+/// phonemes with the final full stop dropped. What is different here is that
+/// they are `SynthesisSettings` fields — a voiceover has reasons a meditation
+/// tape does not, and this tool exists to let someone find out what they cost.
+public final class VoiceEngine: @unchecked Sendable {
+    private let session: ORTSession
+    private let phonemizer: EspeakPhonemizer
+    private let config: PiperVoiceConfig
+    public let voice: String
+
+    private nonisolated(unsafe) static let env: ORTEnv? = try? ORTEnv(loggingLevel: .warning)
+    private var defaultPhonemeCache: [String: String] = [:]
+
+    /// The rate this model actually speaks at, read from its own config.
+    public var sampleRate: Double { Double(config.audio.sample_rate) }
+
+    /// Every voice available: the one that ships, plus anything installed.
+    ///
+    /// One voice ships and it is not privileged. An installed voice of the same
+    /// name wins, so somebody who retrains `snepssen` gets theirs without
+    /// having to pick a different name to escape ours.
+    public static func availableVoices() -> [VoiceProfile] {
+        VoiceLibrary.merge(bundled: bundledProfiles(), installed: installedProfiles().voices)
+    }
+
+    public static func bundledProfiles() -> [VoiceProfile] {
+        guard let dir = Bundle.module.resourceURL,
+              let files = try? FileManager.default.contentsOfDirectory(atPath: dir.path)
+        else { return [] }
+        return VoiceLibrary.scan(files: files, in: dir, bundled: true).voices
+    }
+
+    /// What is in the user's voices folder, and what is wrong with the rest.
+    /// The rejections are surfaced: somebody who has just trained a model and
+    /// copied one of its two files deserves to be told which is missing.
+    public static func installedProfiles()
+        -> (voices: [VoiceProfile], rejected: [VoiceRejection]) {
+        let dir = AppDirectories.voices
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: dir.path)
+        else { return ([], []) }
+        return VoiceLibrary.scan(files: files, in: dir, bundled: false)
+    }
+
+    /// The espeak-ng data, which every voice shares. Bundled, not per voice —
+    /// a Piper export carries a model and a config, never the phonemizer.
+    public static func espeakDataDirectory() -> URL? {
+        Bundle.module.url(forResource: "espeak-ng-data", withExtension: nil)
+    }
+
+    public convenience init(voice: String) throws {
+        guard let profile = Self.availableVoices().first(where: { $0.name == voice })
+        else { throw VoiceEngineError.noModel(voice) }
+        try self.init(profile: profile)
+    }
+
+    public init(profile: VoiceProfile) throws {
+        guard let env = Self.env else { throw VoiceEngineError.noEnvironment }
+        self.voice = profile.name
+        guard let dataDir = Self.espeakDataDirectory() else {
+            throw VoiceEngineError.noModel(profile.name)
+        }
+        config = try JSONDecoder().decode(PiperVoiceConfig.self,
+                                          from: Data(contentsOf: profile.configURL))
+        session = try ORTSession(env: env, modelPath: profile.modelURL.path, sessionOptions: nil)
+        phonemizer = try EspeakPhonemizer(dataDirectory: dataDir, voice: config.espeak.voice)
+    }
+
+    // MARK: rendering
+
+    /// Render a whole script, sentence by sentence, laying the requested
+    /// silence between them.
+    public func render(_ script: Script, settings: SynthesisSettings,
+                       dictionary: [PronunciationEntry] = [],
+                       onSentence: ((Int, Int) -> Void)? = nil) throws -> [RenderedSentence] {
+        var out: [RenderedSentence] = []
+        for (i, sentence) in script.sentences.enumerated() {
+            onSentence?(i, script.sentences.count)
+            let samples = try renderSentence(sentence.text, settings: settings,
+                                             dictionary: dictionary)
+            // The gap that follows this sentence. A paragraph break replaces
+            // the sentence gap rather than adding to it -- two silences laid
+            // end to end is how a "0.6 s paragraph" quietly becomes 0.68.
+            let gap: Double = i == script.sentences.count - 1
+                ? 0
+                : (sentence.endsParagraph ? settings.paragraphGap : settings.sentenceGap)
+            let seconds = Audio.seconds(samples, at: sampleRate)
+            let words = sentence.text.split(whereSeparator: \.isWhitespace).count
+            out.append(RenderedSentence(
+                id: sentence.id, text: sentence.text, samples: samples,
+                trailingGap: gap, seconds: seconds,
+                peakDBFS: Audio.peakDBFS(samples),
+                wordsPerMinute: seconds > 0 ? Double(words) / seconds * 60 : 0))
+        }
+        return out
+    }
+
+    /// Lay rendered sentences into one buffer with their gaps between them.
+    public func assemble(_ rendered: [RenderedSentence]) -> [Float] {
+        var out: [Float] = []
+        for r in rendered {
+            out += r.samples
+            out += Audio.silence(seconds: r.trailingGap, at: sampleRate)
+        }
+        return out
+    }
+
+    /// One sentence, one inference call. Never less, never more.
+    public func renderSentence(_ text: String, settings: SynthesisSettings,
+                               dictionary: [PronunciationEntry] = []) throws -> [Float] {
+        let phonemized = try phonemes(for: text, settings: settings,
+                                      dictionary: dictionary).phonemes
+        let ids = phonemeIDs(phonemized, settings: settings)
+        guard !ids.isEmpty else { return [] }
+        return try infer(ids: ids, settings: settings)
+    }
+
+    /// The phonemes a sentence will actually be spoken from, with the
+    /// dictionary applied, and which entries landed.
+    ///
+    /// `applied` is reported rather than assumed. The substitution finds a
+    /// word by phonemizing it on its own and matching that in the sentence,
+    /// which holds for ordinary prose -- "Kubrick" alone is `kˈʌbɹɪk` and it
+    /// appears verbatim in "I watched a Kubrick film" -- but stress can move in
+    /// context, and an entry that quietly does nothing is exactly the failure
+    /// this whole feature exists to stop.
+    public func phonemes(for text: String, settings: SynthesisSettings,
+                         dictionary: [PronunciationEntry] = [])
+        -> (phonemes: String, applied: Set<String>) {
+        // The one rewrite of the listener's words, and it is theirs to switch
+        // off. Applied before phonemizing rather than inside the phonemizer,
+        // so what the dictionary matches against is what was actually spoken.
+        let source = settings.spokenCurrency ? Script.spokenCurrency(text) : text
+        let base = (try? phonemizer.phonemize(source, dropFinalStop: settings.dropFinalFullStop)) ?? ""
+        guard !dictionary.isEmpty else { return (base, []) }
+        var defaults: [String: String] = [:]
+        for entry in dictionary {
+            defaults[entry.key] = defaultPhonemes(for: entry.word)
+        }
+        return PronunciationDictionary.apply(dictionary, to: base, defaults: defaults)
+    }
+
+    /// What espeak says for a word on its own. Cached: a script re-rendered
+    /// with a ten-word dictionary would otherwise phonemize those ten words
+    /// once per sentence.
+    public func defaultPhonemes(for word: String) -> String {
+        let key = word.lowercased()
+        if let cached = defaultPhonemeCache[key] { return cached }
+        let value = (try? phonemizer.phonemize(word, dropFinalStop: false)) ?? ""
+        defaultPhonemeCache[key] = value
+        return value
+    }
+
+    /// The symbols this voice knows, as a set, for validating a typed entry.
+    public var vocabularySet: Set<String> {
+        Set(config.phoneme_id_map.keys.filter { $0.count == 1 })
+    }
+
+    /// Phonemes to model ids: BOS, PAD after every phoneme, EOS.
+    ///
+    /// Iterates by Unicode *scalar*, matching Python's `list(str)` — Swift's
+    /// default `Character` iteration would group a base letter with a
+    /// following combining diacritic into one grapheme cluster and silently
+    /// fail to match either half's separate entry.
+    ///
+    /// The one addition this app makes is `clausePads`: extra PAD ids after a
+    /// clause mark. PAD is a phoneme the model saw everywhere in training, so
+    /// spending more of them at a breath is in-distribution — unlike cutting
+    /// the sentence at the comma and splicing silence, which puts a cold start
+    /// where a breath belongs and was heard as a stutter.
+    func phonemeIDs(_ phonemized: String, settings: SynthesisSettings) -> [Int] {
+        let map = config.phoneme_id_map
+        let pad = map["_"] ?? []
+        var ids: [Int] = []
+        ids += map["^"] ?? []
+        ids += pad
+        for scalar in phonemized.unicodeScalars {
+            let key = String(scalar)
+            guard let id = map[key] else { continue }
+            ids += id
+            ids += pad
+            if settings.clausePads > 0,
+               let ch = key.first, Script.clauseMarks.contains(ch) {
+                for _ in 0 ..< settings.clausePads { ids += pad }
+            }
+        }
+        for _ in 0 ..< settings.trailingPads { ids += pad }
+        ids += map["$"] ?? []
+        return ids
+    }
+
+    private func infer(ids: [Int], settings: SynthesisSettings) throws -> [Float] {
+        let inputData = NSMutableData(bytes: ids.map { Int64($0) }, length: ids.count * 8)
+        let inputTensor = try ORTValue(tensorData: inputData, elementType: .int64,
+                                       shape: [1, NSNumber(value: ids.count)])
+        var lengthValue = Int64(ids.count)
+        let lengthData = NSMutableData(bytes: &lengthValue, length: 8)
+        let lengthTensor = try ORTValue(tensorData: lengthData, elementType: .int64, shape: [1])
+
+        // The order is the model's, not ours: noise, length, noise_w.
+        var scales: [Float] = [Float(settings.noiseScale),
+                               Float(settings.lengthScale),
+                               Float(settings.noiseW)]
+        let scalesData = NSMutableData(bytes: &scales, length: 12)
+        let scalesTensor = try ORTValue(tensorData: scalesData, elementType: .float, shape: [3])
+
+        let outputs = try session.run(
+            withInputs: ["input": inputTensor, "input_lengths": lengthTensor, "scales": scalesTensor],
+            outputNames: ["output"], runOptions: nil)
+        guard let tensor = outputs["output"], let data = try tensor.tensorData() as Data?
+        else { throw VoiceEngineError.noOutput }
+
+        let count = data.count / MemoryLayout<Float>.size
+        return data.withUnsafeBytes { raw in
+            Array(raw.bindMemory(to: Float.self).prefix(count))
+        }
+    }
+
+    /// The IPA a piece of text will actually be spoken from.
+    ///
+    /// Routed through the same path the renderer uses, settings and all. It
+    /// used to call the phonemizer directly, which meant it reported what
+    /// espeak said rather than what the model would hear -- so with the
+    /// currency rule on it showed "dollar four point nine nine" for text the
+    /// renderer was correctly saying as "four dollars ninety-nine". A
+    /// diagnostic that disagrees with the thing it is diagnosing is worse than
+    /// no diagnostic.
+    public func phonemesFor(_ text: String,
+                            settings: SynthesisSettings = SynthesisSettings()) -> String {
+        phonemes(for: text, settings: settings).phonemes
+    }
+
+    /// Which symbols in a phoneme string the model actually knows.
+    ///
+    /// **This is the hazard any pronunciation feature has to answer for.**
+    /// `phonemeIDs` skips an unknown symbol silently -- `guard let id =
+    /// map[key] else { continue }` -- so a phoneme string containing anything
+    /// outside the model's 161-symbol vocabulary loses those sounds with no
+    /// error anywhere. Typing an ASCII `r` where IPA wants `ɹ`, or an `ʁ` this
+    /// voice never learned, produces a word with a hole in it and no complaint.
+    public func vocabularyCheck(_ phonemes: String) -> (kept: Int, dropped: [String]) {
+        let map = config.phoneme_id_map
+        var kept = 0
+        var dropped: [String] = []
+        for scalar in phonemes.unicodeScalars {
+            let key = String(scalar)
+            if map[key] != nil { kept += 1 }
+            else if key != " " { dropped.append(key) }
+        }
+        return (kept, dropped)
+    }
+
+    /// Every symbol this voice can say, sorted. The alphabet a pronunciation
+    /// field is allowed to use.
+    public var vocabulary: [String] {
+        config.phoneme_id_map.keys.filter { $0.count == 1 }.sorted()
+    }
+
+    // MARK: measurement
+
+    /// Measure what each punctuation mark is actually worth, for this voice at
+    /// these settings.
+    ///
+    /// **By total duration, not by looking for the gap.** The obvious method —
+    /// render a line, find the silence in the middle, call that the comma — was
+    /// tried first and does not work. Two reasons, both instructive:
+    ///
+    /// - *The model has no silence to find.* Its pauses sit at an amplitude
+    ///   around 0.005–0.01, which is breath rather than digital zero. A trim
+    ///   threshold of 0.002 reported an 11 ms comma; 0.01 reported 434 ms on
+    ///   the same line. The answer was entirely an artifact of the threshold.
+    /// - *The model is stochastic.* `noise_w` varies phoneme durations between
+    ///   draws by design, so the same sentence rendered twice has a different
+    ///   rhythm. Successive draws at 0, 4, 8 and 12 clause pads gave longest
+    ///   gaps of 434, 213, 300 and 265 ms — no signal at all — while the total
+    ///   durations went 3.29, 3.27, 3.48, 3.69 s, which is the trend actually
+    ///   there.
+    ///
+    /// So: render the same words with and without the mark and subtract the
+    /// durations. Nothing has to be located, no threshold is involved, and the
+    /// words either side are identical by construction.
+    ///
+    /// Measurement runs with `noiseW` forced to zero — the duration predictor
+    /// stops sampling and becomes repeatable, which is the whole point when
+    /// what is being measured *is* a duration. The result therefore describes
+    /// the model's central tendency rather than any one take, which is the
+    /// right thing for a dial to be calibrated against.
+    public func calibratePauses(settings: SynthesisSettings,
+                                marks: [String] = [",", ";", ":", "—"],
+                                onProgress: ((Int, Int) -> Void)? = nil) throws -> PauseCalibration {
+        var deterministic = settings
+        deterministic.noiseW = 0
+        deterministic.clausePads = 0
+
+        var results: [PauseCalibration.Mark] = []
+        var step = 0
+        let probeCount = PauseCalibration.probes(for: ",").count
+        let total = marks.count * probeCount * 2 + 4
+
+        func duration(_ text: String, _ s: SynthesisSettings) throws -> Double {
+            step += 1; onProgress?(step, total)
+            return Audio.seconds(try renderSentence(text, settings: s), at: sampleRate)
+        }
+
+        for mark in marks {
+            var deltas: [Double] = []
+            for probe in PauseCalibration.probes(for: mark) {
+                let a = try duration(probe.with, deterministic)
+                let b = try duration(probe.without, deterministic)
+                deltas.append(Swift.max(0, a - b))
+            }
+            guard !deltas.isEmpty else { continue }
+            results.append(.init(mark: mark,
+                                 mean: deltas.reduce(0, +) / Double(deltas.count),
+                                 minimum: deltas.min() ?? 0, maximum: deltas.max() ?? 0,
+                                 samples: deltas.count))
+        }
+
+        // What one clause pad buys, from the slope across the whole range
+        // rather than from one endpoint pair -- a single difference would ride
+        // on whatever the duration predictor happened to do at that one count.
+        var perPadSamples: [Double] = []
+        let padProbe = PauseCalibration.probes(for: ",")[0].with
+        let base = try duration(padProbe, deterministic)
+        for pads in [4, 8, 12] {
+            var padded = deterministic; padded.clausePads = pads
+            let d = try duration(padProbe, padded)
+            perPadSamples.append((d - base) / Double(pads))
+        }
+        let perPad = Swift.max(0, perPadSamples.reduce(0, +) / Double(perPadSamples.count))
+
+        return PauseCalibration(voice: voice, lengthScale: settings.lengthScale,
+                                marks: results, secondsPerClausePad: perPad)
+    }
+
+    /// The longest silence inside a rendered line, ignoring its head and tail.
+    ///
+    /// Head and tail are excluded deliberately: an utterance begins and ends
+    /// quiet, and those runs are usually longer than any pause inside it, so
+    /// including them would measure the model's onset rather than its comma.
+    private func gapSeconds(_ samples: [Float]) -> Double {
+        let head = Audio.quietHead(samples)
+        let tail = Audio.quietTail(samples)
+        guard samples.count > head + tail else { return 0 }
+        let interior = Array(samples[head ..< (samples.count - tail)])
+        guard let run = Audio.longestQuietRun(interior, minimumLength: Int(sampleRate * 0.01))
+        else { return 0 }
+        return Double(run.length) / sampleRate
+    }
+}
