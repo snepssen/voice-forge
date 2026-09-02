@@ -13,6 +13,7 @@ import { integratedLUFS, truePeakDBTP } from "../core/loudness.js";
 import { writeWav, resample } from "./../main/audio.js";
 import { writeFileSync, readFileSync } from "fs";
 import { join } from "path";
+import { tmpdir } from "os";
 
 const text = `Welcome back to the channel. Today we are looking at something a little different.
 
@@ -64,7 +65,12 @@ let held = false;
 if (peak + gain > ceiling) { gain = ceiling - peak; held = true; }
 const g = Math.pow(10, gain / 20);
 out = Float32Array.from(out, v => Math.max(-1, Math.min(1, v * g)));
-const path = "/tmp/vfx-smoke.wav";
+// `os.tmpdir()`, not "/tmp". On Windows the literal resolves to C:\tmp,
+// which does not exist, so writeFileSync throws ENOENT and the whole smoke
+// test exits 1 -- which is exactly how this failed in CI while passing on
+// macOS and Linux. Every other path in the project already goes through an
+// API that knows what platform it is on; this one was written on a Mac.
+const path = join(tmpdir(), "vfx-smoke.wav");
 writeFileSync(path, writeWav(out, rate, 16));
 console.log(`  ${before.toFixed(1)} LUFS -> ${integratedLUFS(out, rate).toFixed(1)} LUFS (${gain >= 0 ? "+" : ""}${gain.toFixed(1)} dB)${held ? " [held back by the ceiling]" : ""}`);
 

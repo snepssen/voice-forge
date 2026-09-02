@@ -22,46 +22,83 @@ jobs:
   assets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: ./scripts/check-shared-assets.sh
 
-  cross-platform:
+  # Windows and Linux are separate jobs rather than a matrix, because what each
+  # one can be trusted to produce is different and the difference matters.
+  windows:
     needs: assets
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            args: --win
-          - os: ubuntu-latest
-            args: --linux
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     defaults:
       run: { working-directory: cross-platform }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 22, cache: npm, cache-dependency-path: cross-platform/package-lock.json }
       - run: npm ci
+      - run: npm run check
+      - run: npm run parity
+      - run: npm run smoke
+      - run: npx electron-builder --win nsis zip --publish never
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: |
+            cross-platform/dist/*.exe
+            cross-platform/dist/*.zip
+          if-no-files-found: error
 
-      # The checks come before the build, and the cheap one comes first: the
-      # core suite loads no model, so a logic regression fails in seconds
-      # rather than after a platform build.
+  linux:
+    needs: assets
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: cross-platform }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm, cache-dependency-path: cross-platform/package-lock.json }
+      - run: npm ci
       - run: npm run check
       - run: npm run parity
       - run: npm run smoke
 
-      - run: npx electron-builder ${{ matrix.args }} --publish never
+      # tar.gz is the artifact that has actually been run: a Steam Deck, x86-64,
+      # SteamOS. It builds, it launches, and it sounds right. So it is the one
+      # step allowed to fail the release.
+      - name: Linux archive (verified on SteamOS)
+        run: npx electron-builder --linux tar.gz --publish never
 
-      - uses: actions/upload-artifact@v4
+      # AppImage and deb have never been built successfully anywhere in this
+      # project -- AppImage cannot even be attempted from macOS, where
+      # electron-builder ships an x86_64 mksquashfs. They are attempted here
+      # and allowed to fail, because an unproven convenience format should not
+      # take down a release of the format people have actually used. Each is
+      # its own step so the log names which one broke rather than reporting one
+      # opaque exit code for three targets at once.
+      - name: Install the packaging tools deb and AppImage want
+        run: sudo apt-get update && sudo apt-get install -y fakeroot dpkg libarchive-tools
+        working-directory: .
+      - name: AppImage (unproven)
+        continue-on-error: true
+        run: npx electron-builder --linux AppImage --publish never
+      - name: deb (unproven)
+        continue-on-error: true
+        run: npx electron-builder --linux deb --publish never
+
+      - name: What actually built
+        run: ls -la dist/ || true
+
+      - uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.os }}
+          name: linux
           path: |
-            cross-platform/dist/*.exe
+            cross-platform/dist/*.tar.gz
             cross-platform/dist/*.AppImage
             cross-platform/dist/*.deb
-            cross-platform/dist/*.tar.gz
-          if-no-files-found: error
+          # warn, not error: the tar.gz step above already failed the job if the
+          # proven artifact is missing, and the other two are allowed to be.
+          if-no-files-found: warn
 
   macos:
     needs: assets
@@ -69,23 +106,36 @@ jobs:
     defaults:
       run: { working-directory: macos }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: ./build.sh            # runs vfcheck first and fails the build on a red suite
       - name: Package the app
         run: ditto -c -k --keepParent "Voice Forge.app" "Voice-Forge-macOS.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: macos, path: macos/Voice-Forge-macOS.zip, if-no-files-found: error }
 
   publish:
-    needs: [cross-platform, macos]
+    needs: [windows, linux, macos]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { path: artifacts }
       - run: find artifacts -type f | sort
-      - uses: softprops/action-gh-release@v2
+
+      # Checksums, so the installer can verify what it downloaded rather than
+      # trusting the transport. Without this the SHA256 step in install.sh
+      # would be theatre.
+      - name: Checksums
+        run: |
+          cd artifacts
+          find . -type f ! -name SHA256SUMS -printf "%P\n" | sort | while read -r f; do
+            sha256sum "$f"
+          done > ../SHA256SUMS
+          cd .. && cat SHA256SUMS
+      - uses: softprops/action-gh-release@v3
         with:
-          files: artifacts/**/*
+          files: |
+            artifacts/**/*
+            SHA256SUMS
           draft: true          # look at it before anybody else does
           body: |
             Built from this tag. Every platform builds on itself and every

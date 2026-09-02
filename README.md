@@ -31,6 +31,32 @@ byte-for-byte and durations to the millisecond — 1.637 s against 1.637 s — w
 the duration predictor made deterministic so the comparison means something. If
 they ever disagree, one of the two suites goes red.
 
+## Installing
+
+    # macOS and Linux
+    curl -fsSL https://raw.githubusercontent.com/snepssen/voice-forge/main/install.sh | sh
+
+    # Windows, in PowerShell
+    irm https://raw.githubusercontent.com/snepssen/voice-forge/main/install.ps1 | iex
+
+Read them first if you like — they are short, and piping a remote script into a
+shell is exactly the thing worth being suspicious of:
+
+    curl -fsSL https://raw.githubusercontent.com/snepssen/voice-forge/main/install.sh | less
+
+Each asks GitHub for the latest release, downloads the single archive for that
+machine, **checks its SHA256 against the checksums published in the same
+release**, and unpacks it. No sudo. Nothing written outside the paths it prints.
+
+Or take a build from [Releases](https://github.com/snepssen/voice-forge/releases)
+by hand.
+
+**Two things worth knowing before you run it.** On macOS the app is signed
+ad-hoc rather than notarised, so Gatekeeper would refuse it — the installer
+clears the download quarantine flag, which is what you would do by right-clicking
+Open, and says that it did. On Windows the installer is unsigned and SmartScreen
+will warn you. Code signing costs money this project does not spend.
+
 ## Building
 
 ```bash
