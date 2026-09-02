@@ -57,6 +57,16 @@ advice.
 piper-phonemize, both GPL-3.0-or-later, so anything distributed with them has to
 be compatible.
 
+## The page
+
+[`docs/`](docs) is the project page — one HTML file, four screenshots, no build
+step. Turn on GitHub Pages with the source set to **main / docs** and it is
+live at `https://<username>.github.io/voice-forge/`.
+
+The three download links point at `releases/latest/download/...`, which always
+resolves to the newest release, so the page never needs editing when a version
+ships.
+
 ## Contact
 
 There is no updater and no crash reporter, which is deliberate — and it means a
