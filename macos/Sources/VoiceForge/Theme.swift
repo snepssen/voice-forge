@@ -11,6 +11,19 @@ enum Appearance: String, CaseIterable, Identifiable, Codable {
     var scheme: ColorScheme? {
         switch self { case .system: nil; case .light: .light; case .dark: .dark }
     }
+    /// The AppKit appearance to force app-wide so the raw `NSColor` dynamic
+    /// providers below (Monokai) resolve the same way `.preferredColorScheme`
+    /// sets the SwiftUI environment. The two mechanisms don't talk to each
+    /// other -- a dynamic `NSColor` resolves against the window's actual
+    /// `NSAppearance`, not SwiftUI's color-scheme environment value -- so
+    /// without this, toggling the in-app control changes nothing on screen.
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
 }
 
 /// Monokai, and a light companion that keeps its hues.

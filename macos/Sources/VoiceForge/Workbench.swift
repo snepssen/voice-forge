@@ -16,10 +16,14 @@ struct Workbench: View {
             controls.frame(minWidth: 340, idealWidth: 380, maxWidth: 460)
         }
         .background(Monokai.bg)
-        .task { studio.load() }
+        .task {
+            studio.load()
+            NSApp.appearance = studio.appearance.nsAppearance
+        }
         .onChange(of: studio.voice) { _, _ in studio.voiceChanged() }
         .onChange(of: studio.settings) { _, _ in studio.save() }
         .onChange(of: studio.text) { _, _ in studio.save() }
+        .onChange(of: studio.appearance) { _, newValue in NSApp.appearance = newValue.nsAppearance }
         .toolbar { toolbar }
         .sheet(isPresented: $studio.showingDictionary) {
             DictionaryView().environmentObject(studio)
