@@ -82,6 +82,16 @@ named the same as the bundled voice and yours wins. [`TRAINING.md`](TRAINING.md)
 is the guide, and carries this project's own measurements rather than generic
 advice.
 
+## The wider workshop
+
+- [Gateway Forge](https://snepssen.github.io/gateway-forge/) — guided-session
+  authoring using the same measured speech engine.
+- [Voice Forge](https://snepssen.github.io/voice-forge/) — this project.
+- [Protoke](https://snepssen.github.io/protoke/) — lyric and narration video
+  with a word-timed vector face.
+- [tools-core](https://snepssen.github.io/tools-core/) — corpus, audio, and
+  speech-research utilities.
+
 ## Licence
 
 **GPL-3.0-or-later.** Not a preference: the app bundles espeak-ng and
