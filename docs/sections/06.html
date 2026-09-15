@@ -1,0 +1,8 @@
+  <p>One voice ships, and it isn’t privileged: drop a Piper <code>.onnx</code> and its <code>.onnx.json</code> into the voices folder and it appears in the picker. Install one named the same as the bundled voice and yours wins.</p>
+  <ol class="steps">
+    <li><b>Record 30–60 minutes</b> of your own clean speech, reading prepared text. Consistency beats quantity — one microphone, one room, one session.</li>
+    <li><b>Cut it into clips at silence, never mid-word,</b> and don’t trim tight. This is the step that decides whether it sounds like you, and the one most guides cover in a sentence.</li>
+    <li><b>Fine-tune from a pretrained checkpoint.</b> Measure iterations per second over one partial epoch before committing days — a wrong batch size doesn’t fail, it quietly takes a month.</li>
+    <li><b>Export to ONNX, install, and measure it.</b> The pause figures are per voice and don’t transfer.</li>
+  </ol>
+  <p style="margin-top:22px">The full guide ships inside the app and carries this project’s own measurements rather than generic advice — including the batch-size cliff that cost seventeen times the training speed for one power of two.</p>

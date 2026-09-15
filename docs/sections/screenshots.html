@@ -1,0 +1,13 @@
+  <div class="shot"><img src="img/voice-forge.png" alt="Voice Forge showing a rendered script broken into sentences, with pause and model controls on the right"></div>
+  <p class="cap">Left: the script, and what it became — every sentence with its length, pace and peak, playable and re-rollable on its own. Right: the dials, each with the measured consequence printed underneath.</p>
+  <div class="pair">
+    <div class="shot"><img src="img/light.png" alt="The same app in its light theme"></div>
+    <div class="shot"><img src="img/cross-platform.png" alt="The cross-platform build, identical in layout"></div>
+  </div>
+  <p class="cap">Light and dark, and the cross-platform build beside it. The interface is drawn rather than borrowed from a toolkit, so it is the same on every platform instead of three apps that happen to share a name.</p>
+
+  <h3 style="margin-top:52px">You say potato</h3>
+  <p>espeak gets most words right unaided — it manages <em>Siobhan</em> without help. What breaks is proper nouns, brand names, acronyms, and the words people simply disagree about. So the dictionary starts from the words in <em>your</em> script rather than an empty box, and it takes IPA, because IPA is exactly what the model consumes. What you type is what it is handed.</p>
+  <div class="shot"><img src="img/pronunciation.png" alt="The pronunciation table: the word potato, what espeak says for it, an IPA override, and a green line confirming it applies in 2 of 2 sentences"></div>
+  <p class="cap">Left, what espeak says. Right, what you want instead. The green line is the part that earns its keep: it runs the substitution and reports where it actually <em>landed</em>, because stress shifts in context and an entry that quietly does nothing is the exact failure this feature exists to prevent. Entries are global by default, with per-script overrides that shadow them.</p>
+  <div class="note">Every character is checked against the voice’s own <b>161 symbols</b> before it reaches the model. The <code>/slashes/</code> you would paste from a dictionary are refused, and so is a syllable dot — to this model <code>.</code> is the full-stop phoneme, so it would break the sentence in half mid-word. An ASCII <code>r</code> only warns: it is the trilled <span class="ipa">r</span> of Spanish, real IPA, and somebody might mean it.</div>

@@ -1,0 +1,12 @@
+  <p>The Mac app is Swift and stays Swift. Everywhere else is Electron and TypeScript, with the interface drawn in HTML so it looks the same rather than borrowing a platform toolkit. The engine is Piper/VITS through ONNX Runtime, with espeak-ng for phonemes.</p>
+  <div class="readout three">
+    <div class="cell"><div class="n">161</div><div class="l">checks on the <b>Swift</b> core</div></div>
+    <div class="cell"><div class="n">119</div><div class="l">on the <b>TypeScript</b> core, deliberately the same assertions</div></div>
+    <div class="cell"><div class="n">18</div><div class="l"><b>parity</b> checks holding the two engines to each other</div></div>
+  </div>
+  <p style="margin-top:26px">The parity suite is the one that matters. Phonemes are compared byte-for-byte and durations to the millisecond — 1.637 s against 1.637 s, 4.888 s against 4.888 s, with the duration predictor made deterministic so the comparison means something.</p>
+  <h3 style="margin-top:34px">One finding worth the whole exercise</h3>
+  <p>The npm phonemizer bundles a newer espeak-ng whose American English rules moved the NORTH/FORCE vowel from <span class="ipa">ɔːɹ</span> to <span class="ipa">oːɹ</span>. Across 35 ordinary words, 8 differed — <em>four, before, more, door, important, course, report, support</em> — and the model was trained on the first. Shipping the Mac build’s espeak data with the WebAssembly makes it byte-identical again.</p>
+  <p>It fails <em>open</em>: point it at the wrong directory and nothing errors. The app runs, speaks, and is wrong in some of the commonest words in English. Eight parity checks own those words for exactly that reason.</p>
+  <h3 style="margin-top:34px">It makes no network connections</h3>
+  <p>No updater, no crash reporter, no analytics. Chromium’s background chatter is switched off by name, and the socket layer refuses any non-loopback connection outright. The check that proves it was itself proved: a deliberately planted request had to make it fail before the passing result was believed.</p>
