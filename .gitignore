@@ -1,2 +1,6 @@
 .DS_Store
 *.log
+
+# Bytecode from docs/build.py importing docs/page.py.
+__pycache__/
+*.pyc
