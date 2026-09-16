@@ -15,7 +15,7 @@ PAGE = {
         "name": "Voice&nbsp;Forge",
         "title": "Voice Forge",
         "badge": "macOS &amp; Linux verified · Windows built, untested",
-        "fonts": "https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&display=swap",
+        "fonts": "fonts.css",
         "description": "A text-to-speech tool with the synthesiser’s dials on the outside, built on a voice trained from about forty minutes of my own speech.",
         "og_description": None,
         "subhead": "A text-to-speech tool with the synthesiser’s dials on the outside — built on a voice trained from about forty minutes of my own speech.",
