@@ -377,7 +377,7 @@ setSuite("prosody");
 
   // Every dial has to be able to turn the rule off it controls.
   const flat = PR.automaticDirections(cat,
-    { focus: 0, phraseFinal: 0, deaccentRepeats: 0, contrast: 0 });
+    { ...PR.defaultProsody(), focus: 0, phraseFinal: 0, contrast: 0 });
   equal(flat, [], "turned all the way down it directs nothing at all");
   const noContrast = PR.automaticDirections(cat, { ...PR.defaultProsody(), contrast: 0 });
   expect(noContrast.every(d => d.stretch >= 1), "and contrast alone can be turned off");

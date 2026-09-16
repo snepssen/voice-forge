@@ -4,10 +4,12 @@ import { join } from "path";
 import { initialize as initEspeak, phonemize } from "piper-phonemize";
 import type { SynthesisSettings } from "../core/settings.js";
 import { applyExpression, expressionSettings, neutralExpression, normalizedExpression,
-         toneFor, type SentenceExpression } from "../core/expression.js";
+         toneFor, expressionProsody, type SentenceExpression } from "../core/expression.js";
 import { beatPads, parsePerformanceMarkup, performanceWordCount } from "../core/performanceMarkup.js";
 import { accentEnvelope, durationFactors, type SoundDirection } from "../core/timingPlan.js";
-import { automaticDirections, defaultProsody, spokenKeys } from "../core/prosody.js";
+import { restress } from "../core/phonology.js";
+import { automaticDirections, defaultProsody, spokenKeys,
+         type ProsodySettings } from "../core/prosody.js";
 import { clauseMarks, spacedEmDashes, spokenCurrency, type Script } from "../core/script.js";
 import { applyDictionary, entryKey, type PronunciationEntry } from "../core/pronunciation.js";
 import { scanVoices, mergeVoices, type VoiceProfile, type VoiceRejection } from "../core/voiceLibrary.js";
@@ -327,10 +329,25 @@ export class VoiceEngine {
    */
   async readingFor(text: string, settings: SynthesisSettings,
                    dictionary: PronunciationEntry[] = [],
-                   spoken: ReadonlySet<string> = new Set()): Promise<SoundDirection[]> {
+                   spoken: ReadonlySet<string> = new Set(),
+                   prosody: ProsodySettings = defaultProsody()): Promise<SoundDirection[]> {
     if (!settings.automaticDynamics || !this.directsTiming) return [];
+    const layout = await this.layoutFor(text, settings, dictionary, prosody.lift);
+    return automaticDirections(layout, prosody, spoken);
+  }
+
+  /**
+   * The tokens one sentence becomes, after any lift has moved its stress marks.
+   *
+   * Everything that needs a layout comes through here. A direction addresses a
+   * token by index, so if the reading were planned against one phoneme string
+   * and the audio rendered from another, every hold would land on the wrong
+   * sound — and a lift changes the string.
+   */
+  private async layoutFor(text: string, settings: SynthesisSettings,
+                          dictionary: PronunciationEntry[], lift: number): Promise<TokenLayout> {
     const { encoded } = await this.preparedPhonemes(text, settings, dictionary);
-    return automaticDirections(this.tokenLayout(encoded, settings), defaultProsody(), spoken);
+    return this.tokenLayout(restress(encoded, lift), settings);
   }
 
   /** The words this sentence has now said, to carry into the next one. */
@@ -343,8 +360,9 @@ export class VoiceEngine {
   /** One sentence, one inference call. Never less, never more. */
   async renderSentence(text: string, settings: SynthesisSettings,
                        dictionary: PronunciationEntry[] = [],
-                       directions: SoundDirection[] = []): Promise<Float32Array> {
-    return (await this.renderTimed(text, settings, dictionary, directions)).samples;
+                       directions: SoundDirection[] = [],
+                       lift = 0): Promise<Float32Array> {
+    return (await this.renderTimed(text, settings, dictionary, directions, lift)).samples;
   }
 
   /**
@@ -356,9 +374,9 @@ export class VoiceEngine {
    */
   async renderTimed(text: string, settings: SynthesisSettings,
                     dictionary: PronunciationEntry[] = [],
-                    directions: SoundDirection[] = []): Promise<TimedRender> {
-    const { encoded } = await this.preparedPhonemes(text, settings, dictionary);
-    const layout = this.tokenLayout(encoded, settings);
+                    directions: SoundDirection[] = [],
+                    lift = 0): Promise<TimedRender> {
+    const layout = await this.layoutFor(text, settings, dictionary, lift);
     const ids = layout.ids;
     if (!ids.length) return { samples: new Float32Array(0), layout, frames: [] };
 
@@ -406,8 +424,11 @@ export class VoiceEngine {
       if (s.paragraph !== paragraph) { spoken = new Set(); paragraph = s.paragraph; }
       const expression = normalizedExpression(expressions[s.expressionKey]);
       const sentenceSettings = expressionSettings(settings, expression);
-      const directions = await this.readingFor(s.text, sentenceSettings, dictionary, spoken);
-      const raw = await this.renderSentence(s.text, sentenceSettings, dictionary, directions);
+      const reading = expressionProsody(expression);
+      const directions = await this.readingFor(s.text, sentenceSettings, dictionary, spoken,
+                                               reading);
+      const raw = await this.renderSentence(s.text, sentenceSettings, dictionary, directions,
+                                            reading.lift);
       for (const key of await this.spokenKeysFor(s.text, sentenceSettings, dictionary)) {
         spoken.add(key);
       }

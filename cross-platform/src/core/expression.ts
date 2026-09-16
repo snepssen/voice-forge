@@ -1,4 +1,5 @@
 import type { SynthesisSettings } from "./settings.js";
+import { defaultProsody, type ProsodySettings } from "./prosody.js";
 
 export const expressionPresets = ["neutral", "happy", "playful", "intimate", "flirty", "angry"] as const;
 export type ExpressionPreset = typeof expressionPresets[number];
@@ -19,9 +20,11 @@ export interface ExpressionTone {
 }
 
 interface ExpressionRecipe extends ExpressionTone {
+  /** Global pace. Only values that clear the graph's per-token rounding are
+   * worth setting: below about ten percent nothing moves at all. */
   paceFactor: number;
-  noiseDelta: number;
-  cadenceDelta: number;
+  /** How this expression reads — where the weight falls, and how hard. */
+  prosody: ProsodySettings;
 }
 
 export const neutralExpression = (): SentenceExpression =>
@@ -33,21 +36,60 @@ export const expressionNames: Record<ExpressionPreset, string> = {
 };
 
 export const expressionNotes: Record<ExpressionPreset, string> = {
-  neutral: "The voice and model settings exactly as chosen above.",
-  happy: "Quicker and brighter, with looser rhythmic variation.",
-  playful: "A little brighter and more animated, with the loosest rhythm.",
-  intimate: "Slower and warmer for a more deliberately close read.",
-  flirty: "Slightly warmer and more unhurried.",
-  angry: "Faster and denser. The source voice still sets the acting ceiling.",
+  neutral: "The reading the text asks for, with no colour on top.",
+  happy: "Quicker, brighter, and more of the sentence kept lit.",
+  playful: "The unevenest of them: weak words crushed, strong ones sprung.",
+  intimate: "Slow, close, and settled. Vowels held well past the point.",
+  flirty: "Unhurried, warm, and drawn out at the ends of phrases.",
+  angry: "Clipped and driven. Everything unstressed gets out of the way.",
 };
 
+/**
+ * Each expression is a different *reading*, not a filter over the same one.
+ *
+ * The earlier recipes moved pace by a few percent, nudged the two noise scales,
+ * and applied a shelf or two of EQ. None of it survived contact: the pace
+ * change was rounded away by the graph on 98% of tokens, the noise scales only
+ * redrew the dice, and broadband EQ reads to the ear as level rather than as
+ * character — which is exactly what it sounded like. What is left here is the
+ * timing layer, where a direction is big enough to exist, plus a little tint.
+ */
 const recipes: Record<ExpressionPreset, ExpressionRecipe> = {
-  neutral:  { paceFactor: 1,    noiseDelta: 0,     cadenceDelta: 0,     lowShelfDB: 0,    presenceDB: 0,    highShelfDB: 0,    outputDB: 0 },
-  happy:    { paceFactor: 0.96, noiseDelta: 0.10,  cadenceDelta: 0.10,  lowShelfDB: -1.0, presenceDB: 1.5,  highShelfDB: 2.0,  outputDB: 0 },
-  playful:  { paceFactor: 0.99, noiseDelta: 0.14,  cadenceDelta: 0.16,  lowShelfDB: -0.5, presenceDB: 2.0,  highShelfDB: 1.5,  outputDB: 0 },
-  intimate: { paceFactor: 1.06, noiseDelta: -0.10, cadenceDelta: -0.08, lowShelfDB: 2.5,  presenceDB: -1.0, highShelfDB: -2.0, outputDB: 0 },
-  flirty:   { paceFactor: 1.04, noiseDelta: 0.10,  cadenceDelta: 0.12,  lowShelfDB: 1.5,  presenceDB: 0.8,  highShelfDB: 1.0,  outputDB: 0 },
-  angry:    { paceFactor: 0.94, noiseDelta: 0.14,  cadenceDelta: 0.10,  lowShelfDB: 1.5,  presenceDB: 2.5,  highShelfDB: 0.8,  outputDB: 0 },
+  neutral: {
+    paceFactor: 1, lowShelfDB: 0, presenceDB: 0, highShelfDB: 0, outputDB: 0,
+    prosody: defaultProsody(),
+  },
+  happy: {
+    paceFactor: 0.93, lowShelfDB: -1.5, presenceDB: 1.5, highShelfDB: 2.5, outputDB: 0,
+    // More of the sentence stays lit: a repeat steps back less, and the point
+    // is made hard.
+    prosody: { focus: 1, phraseFinal: 0.1, deaccentRepeats: 0.25, contrast: 0.5,
+               nucleusHold: 0.1, accentDB: 6, lift: 0.6 },
+  },
+  playful: {
+    paceFactor: 0.97, lowShelfDB: -1, presenceDB: 2, highShelfDB: 2, outputDB: 0,
+    // The widest gap between the words that matter and the ones that do not.
+    prosody: { focus: 0.9, phraseFinal: 0.2, deaccentRepeats: 0.5, contrast: 1,
+               nucleusHold: 0.35, accentDB: 5.5, lift: 0.7 },
+  },
+  intimate: {
+    paceFactor: 1.12, lowShelfDB: 2.5, presenceDB: -1.5, highShelfDB: -2.5, outputDB: 0,
+    // Held rather than hit: long nuclei, long settling, almost no crushing.
+    prosody: { focus: 0.45, phraseFinal: 1, deaccentRepeats: 0.7, contrast: 0.05,
+               nucleusHold: 0.6, accentDB: 2.5, lift: -0.6 },
+  },
+  flirty: {
+    paceFactor: 1.1, lowShelfDB: 1.5, presenceDB: 0.8, highShelfDB: 1, outputDB: 0,
+    prosody: { focus: 0.55, phraseFinal: 1, deaccentRepeats: 0.6, contrast: 0.1,
+               nucleusHold: 0.7, accentDB: 3.5, lift: -0.3 },
+  },
+  angry: {
+    paceFactor: 0.9, lowShelfDB: 1.5, presenceDB: 2.5, highShelfDB: 0.8, outputDB: 0,
+    // Clipped: the point is hit hard and short, and nothing is allowed to
+    // settle at the end of a phrase.
+    prosody: { focus: 1, phraseFinal: 0, deaccentRepeats: 0.3, contrast: 1,
+               nucleusHold: 0, accentDB: 6, lift: 1 },
+  },
 };
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -76,11 +118,30 @@ export function toneFor(e: SentenceExpression): ExpressionTone {
 export function expressionSettings(base: SynthesisSettings, e: SentenceExpression): SynthesisSettings {
   const r = recipes[e.preset];
   const n = clamp(e.intensity, 0, 1);
+  // The noise scales used to move here too. They did not encode anything: both
+  // change which draw comes out, so two takes of one preset already differed by
+  // more than two presets did.
   return {
     ...base,
     lengthScale: clamp(base.lengthScale * (1 + (r.paceFactor - 1) * n), 0.5, 2),
-    noiseScale: clamp(base.noiseScale + r.noiseDelta * n, 0, 1.5),
-    noiseW: clamp(base.noiseW + r.cadenceDelta * n, 0, 1.5),
+  };
+}
+
+/** How this expression reads, at this intensity. At zero it is the reading the
+ * text would have got anyway. */
+export function expressionProsody(e: SentenceExpression): ProsodySettings {
+  const r = recipes[e.preset];
+  const n = clamp(e.intensity, 0, 1);
+  const base = defaultProsody();
+  const mix = (a: number, b: number) => a + (b - a) * n;
+  return {
+    focus: mix(base.focus, r.prosody.focus),
+    phraseFinal: mix(base.phraseFinal, r.prosody.phraseFinal),
+    deaccentRepeats: mix(base.deaccentRepeats, r.prosody.deaccentRepeats),
+    contrast: mix(base.contrast, r.prosody.contrast),
+    nucleusHold: mix(base.nucleusHold, r.prosody.nucleusHold),
+    accentDB: mix(base.accentDB, r.prosody.accentDB),
+    lift: mix(base.lift, r.prosody.lift),
   };
 }
 

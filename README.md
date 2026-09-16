@@ -20,21 +20,33 @@ measurement taken from one voice does not describe another, so *Measure this
 voice* is a button rather than a printed constant, and the app will not print one
 voice's figure under another's name.
 
-By default the text decides the delivery. A sentence is read rather than
-recited: the point of each phrase is held a little and lifted, a phrase settles
-at its clause mark, unstressed words give way, and a word already said in the
-paragraph steps back the second time. That happens per *sound* rather than per
-word — a vowel can be held, a stop cannot, and holding one anyway is what makes
-a stretched word sound like a stutter. It is a switch, and off is the flat
-engine every measurement here was taken against.
+The text decides the delivery, and there is no switch for it. A sentence is read
+rather than recited: the point of each phrase is held a little and lifted, a
+phrase settles at its clause mark, unstressed words give way, and a word already
+said in the paragraph steps back the second time. That happens per *sound* — a
+vowel can be held, a stop cannot, and holding one anyway is what turns a
+stretched word into a stutter.
 
-Performance can be directed at two levels. A rendered sentence can carry a
-Happy, Playful, Intimate, Flirty or Angry expression with its own intensity and
-sentence pace and a smooth tonal transition. The shipped Piper voice is not style-conditioned,
-so these are clean delivery directions rather than synthetic emotional acting. Inside the sentence, `*focused words*` receive their
-own stress and room, while `[[beat:short]]`, `[[beat]]` and `[[beat:long]]` add
-authored breaths to the same model call. Pronunciations can be edited as IPA or
-seeded from an ordinary “sounds like” respelling and inspected before use.
+It is the timing the model is told, not a filter over what it produced. The
+bundled voice's graph carries an extra input for per-token duration, and feeding
+it a vector of ones reproduces the stock model bit for bit, which is how the
+change was shown to be inert before any of it was switched on. A voice installed
+from elsewhere has no such input and renders exactly as it always did.
+
+Inside a sentence, `*focused words*` receive their own stress and room, while
+`[[beat:short]]`, `[[beat]]` and `[[beat:long]]` add authored breaths to the same
+model call. Pronunciations can be edited as IPA or seeded from an ordinary
+“sounds like” respelling and inspected before use.
+
+There is no emotion selector. One was built — Happy, Playful, Intimate, Flirty,
+Angry — and it is gone from the interface because it did not earn its place. The
+honest reason is written down in `experiments/piper-timing`: this voice is not
+style-conditioned, so an expression could only reach pace, two noise scales and
+some EQ, and none of the three survived. The pace moved 2% of a 13% request
+because the graph rounds every token up to a whole frame. The noise scales only
+redrew the dice. The EQ read as loudness rather than character. Rebuilding it on
+the timing layer made the six measurably different — and still not convincing
+enough to keep a control for.
 
 For controlled listening comparisons, run `npm run audition` from `cross-platform`.
 It creates a local HTML page with playable WAVs and a JSON measurement manifest.

@@ -77,3 +77,31 @@ export const primaryStress = "ˈ";
 export const secondaryStress = "ˌ";
 export const isStress = (symbol: string): boolean =>
   symbol === primaryStress || symbol === secondaryStress;
+
+/**
+ * Lift or flatten the line by moving its stress marks.
+ *
+ * This is the one intonation control the model answers to natively. Piper was
+ * trained on these marks, so changing them asks it to voice the line
+ * differently rather than bending audio it has already voiced — which is what
+ * every rejected pitch experiment in this project was doing. Measured on the
+ * bundled voice over one sentence: stripping the marks narrows the pitch range
+ * to about 5.8 semitones, leaving them gives about 7.8, and promoting every
+ * secondary to primary gives about 9.4. It changes articulation as well as
+ * pitch, because a stressed vowel is not a reduced one.
+ *
+ * `lift` runs -1 to 1. Above zero promotes secondaries; below zero demotes
+ * primaries and then, further down, removes what is left. Zero is untouched,
+ * and untouched has to stay byte-identical: the parity suite compares these
+ * strings against the Swift core.
+ */
+export function restress(phonemes: string, lift: number): string {
+  if (!lift) return phonemes;
+  if (lift > 0) {
+    // Secondary stress becomes primary: more peaks in the line, more range.
+    return lift >= 0.5 ? phonemes.replaceAll(secondaryStress, primaryStress) : phonemes;
+  }
+  const flattened = phonemes.replaceAll(primaryStress, secondaryStress);
+  // Past halfway there is nothing left to demote, so the marks come out.
+  return lift <= -0.5 ? flattened.replaceAll(secondaryStress, "") : flattened;
+}

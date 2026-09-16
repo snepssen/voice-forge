@@ -10,8 +10,7 @@ import { defaultSettings, ranges, type SynthesisSettings } from "../core/setting
 import { paceNote, noteFor } from "../core/voiceNotes.js";
 import { loudnessTargets } from "../core/loudness.js";
 import * as P from "../core/pronunciation.js";
-import { expressionNames, expressionNotes, expressionPresets,
-         normalizedExpression, type SentenceExpression } from "../core/expression.js";
+import type { SentenceExpression } from "../core/expression.js";
 import { cueCounts } from "../core/performanceMarkup.js";
 
 // The bridge, as exposed by the preload.
@@ -123,17 +122,6 @@ function renderDials() {
   ($("dropFinalFullStop") as HTMLInputElement).checked = state.settings.dropFinalFullStop;
   ($("spokenCurrency") as HTMLInputElement).checked = state.settings.spokenCurrency;
 
-  // A voice that cannot be told its timing gets a disabled control and the
-  // reason, rather than a switch that appears to work and changes nothing.
-  const dynamics = $("automaticDynamics") as HTMLInputElement;
-  const able = state.directsTiming !== false;
-  dynamics.checked = state.settings.automaticDynamics && able;
-  dynamics.disabled = !able;
-  $("automaticDynamicsNote").textContent = !able
-    ? "This voice renders every sound at the length the model predicted. Only a voice built for it can be directed this way."
-    : state.settings.automaticDynamics
-      ? "The point of each phrase is held and lifted, a phrase settles at its clause mark, and a word already said in the paragraph steps back."
-      : "Every sound lasts exactly as long as the model predicted. This is what every figure printed above was measured against.";
   $("clauseNote").textContent = clauseNote();
   $("currencyNote").textContent = currencyNote();
 }
@@ -252,9 +240,6 @@ function renderTake() {
     row.dataset["selected"] = String(state.selected === r.id);
     const top = el("div", "top");
     top.append(el("span", "text", r.text));
-    if (r.expression.preset !== "neutral") {
-      top.append(el("span", "expression", expressionNames[r.expression.preset]));
-    }
     const cues = cueCounts(r.text);
     if (cues.focus + cues.beats > 0) {
       const parts = [cues.focus ? `${cues.focus} focus` : "", cues.beats ? `${cues.beats} beat` : ""].filter(Boolean);
@@ -264,7 +249,7 @@ function renderTake() {
     row.append(top);
     row.onclick = () => {
       state.selected = state.selected === r.id ? null : r.id;
-      renderTake(); renderPerformance();
+      renderTake();
     };
     if (state.selected === r.id) {
       const d = el("div", "detail");
@@ -286,45 +271,6 @@ function renderTake() {
     }
     return row;
   }));
-}
-
-function selectedSentence(): SentenceInfo | undefined {
-  return state.rendered.find(r => r.id === state.selected);
-}
-
-function renderPerformance() {
-  const sentence = selectedSentence();
-  $("expressionEmpty").hidden = !!sentence;
-  $("expressionControls").hidden = !sentence;
-  $("expressionTarget").textContent = sentence ? `sentence ${sentence.id + 1}` : "";
-  const clear = $("btnClearExpressions") as HTMLButtonElement;
-  clear.disabled = Object.keys(state.expressions).length === 0;
-  if (!sentence) return;
-
-  const value = normalizedExpression(state.expressions[sentence.expressionKey]);
-  const preset = $("expressionPreset") as HTMLSelectElement;
-  const intensity = $("expressionIntensity") as HTMLInputElement;
-  const transition = $("expressionTransition") as HTMLInputElement;
-  preset.value = value.preset;
-  intensity.value = String(value.intensity);
-  transition.value = String(value.transitionSeconds);
-  intensity.disabled = value.preset === "neutral";
-  transition.disabled = value.preset === "neutral";
-  $("expressionIntensityVal").textContent = value.intensity.toFixed(2);
-  $("expressionTransitionVal").textContent = `${value.transitionSeconds.toFixed(2)} s`;
-  $("expressionNote").textContent = expressionNotes[value.preset];
-  $("expressionPending").hidden = sentence.expression.preset === value.preset
-    && Math.abs(sentence.expression.intensity - value.intensity) < 0.000001
-    && Math.abs(sentence.expression.transitionSeconds - value.transitionSeconds) < 0.000001;
-}
-
-function updateSelectedExpression(change: Partial<SentenceExpression>) {
-  const sentence = selectedSentence();
-  if (!sentence) return;
-  const value = normalizedExpression({ ...normalizedExpression(state.expressions[sentence.expressionKey]), ...change });
-  if (value.preset === "neutral") delete state.expressions[sentence.expressionKey];
-  else state.expressions[sentence.expressionKey] = value;
-  renderPerformance(); renderTake(); save();
 }
 
 // ----------------------------------------------------------------- export
@@ -562,7 +508,7 @@ function paint() {
   const err = $("errorPanel");
   err.hidden = !state.error;
   err.textContent = state.error ?? "";
-  renderDials(); renderTake(); renderPerformance(); renderExport(); applyAppearance();
+  renderDials(); renderTake(); renderExport(); applyAppearance();
 }
 
 // ------------------------------------------------------------------- wire
@@ -575,27 +521,6 @@ $("btnRender").addEventListener("click", () => withBusy("Rendering", async () =>
 }));
 $("btnPlay").addEventListener("click", () => void audioEl.play());
 $("btnStop").addEventListener("click", () => { audioEl.pause(); audioEl.currentTime = 0; });
-$("expressionPreset").addEventListener("change", e => {
-  const preset = (e.target as HTMLSelectElement).value;
-  if (expressionPresets.includes(preset as typeof expressionPresets[number])) {
-    updateSelectedExpression({ preset: preset as typeof expressionPresets[number] });
-  }
-});
-$("expressionIntensity").addEventListener("input", e =>
-  updateSelectedExpression({ intensity: Number((e.target as HTMLInputElement).value) }));
-$("expressionTransition").addEventListener("input", e =>
-  updateSelectedExpression({ transitionSeconds: Number((e.target as HTMLInputElement).value) }));
-$("btnClearExpressions").addEventListener("click", () => {
-  state.expressions = {}; renderPerformance(); renderTake(); save();
-});
-$("btnRenderSentence").addEventListener("click", async () => {
-  const sentence = selectedSentence();
-  if (!sentence) return;
-  await withBusy("Re-rendering", async () => {
-    const res = await vf["renderOne"]!({ ...request(), id: sentence.id });
-    if (res) applyRenderResult(res);
-  });
-});
 $("btnExport").addEventListener("click", async () => {
   const r = await vf["exportTake"]!(state.exportSettings);
   if (r?.error) { state.error = r.error; } else if (r) { state.receipt = r; }

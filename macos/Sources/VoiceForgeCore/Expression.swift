@@ -27,34 +27,56 @@ public enum ExpressionPreset: String, CaseIterable, Codable, Sendable, Identifia
 
     public var note: String {
         switch self {
-        case .neutral: "The voice and model settings exactly as chosen above."
-        case .happy: "Quicker and brighter, with looser rhythmic variation."
-        case .playful: "A little brighter and more animated, with the loosest rhythm."
-        case .intimate: "Slower and warmer for a more deliberately close read."
-        case .flirty: "Slightly warmer and more unhurried."
-        case .angry: "Faster and denser. The source voice still sets the acting ceiling."
+        case .neutral: "The reading the text asks for, with no colour on top."
+        case .happy: "Quicker, brighter, and more of the sentence kept lit."
+        case .playful: "The unevenest of them: weak words crushed, strong ones sprung."
+        case .intimate: "Slow, close, and settled. Vowels held well past the point."
+        case .flirty: "Unhurried, warm, and drawn out at the ends of phrases."
+        case .angry: "Clipped and driven. Everything unstressed gets out of the way."
         }
     }
 
+    /// Each expression is a different *reading*, not a filter over the same one.
+    ///
+    /// The earlier recipes moved pace by a few percent, nudged the two noise
+    /// scales, and applied a shelf or two of EQ. None of it survived contact:
+    /// the pace change was rounded away by the graph on 98% of tokens, the noise
+    /// scales only redrew the dice, and broadband EQ reads to the ear as level
+    /// rather than as character. What is left is the timing layer, plus a tint.
     fileprivate var recipe: ExpressionRecipe {
         switch self {
         case .neutral:
             ExpressionRecipe()
         case .happy:
-            ExpressionRecipe(paceFactor: 0.96, noiseDelta: 0.10, cadenceDelta: 0.10,
-                             lowShelfDB: -1.0, presenceDB: 1.5, highShelfDB: 2.0)
+            ExpressionRecipe(paceFactor: 0.93,
+                             lowShelfDB: -1.5, presenceDB: 1.5, highShelfDB: 2.5,
+                             prosody: ProsodySettings(focus: 1, phraseFinal: 0.1,
+                                 deaccentRepeats: 0.25, contrast: 0.5,
+                                 nucleusHold: 0.1, accentDB: 6, lift: 0.6))
         case .playful:
-            ExpressionRecipe(paceFactor: 0.99, noiseDelta: 0.14, cadenceDelta: 0.16,
-                             lowShelfDB: -0.5, presenceDB: 2.0, highShelfDB: 1.5)
+            ExpressionRecipe(paceFactor: 0.97,
+                             lowShelfDB: -1, presenceDB: 2, highShelfDB: 2,
+                             prosody: ProsodySettings(focus: 0.9, phraseFinal: 0.2,
+                                 deaccentRepeats: 0.5, contrast: 1,
+                                 nucleusHold: 0.35, accentDB: 5.5, lift: 0.7))
         case .intimate:
-            ExpressionRecipe(paceFactor: 1.06, noiseDelta: -0.10, cadenceDelta: -0.08,
-                             lowShelfDB: 2.5, presenceDB: -1.0, highShelfDB: -2.0)
+            ExpressionRecipe(paceFactor: 1.12,
+                             lowShelfDB: 2.5, presenceDB: -1.5, highShelfDB: -2.5,
+                             prosody: ProsodySettings(focus: 0.45, phraseFinal: 1,
+                                 deaccentRepeats: 0.7, contrast: 0.05,
+                                 nucleusHold: 0.6, accentDB: 2.5, lift: -0.6))
         case .flirty:
-            ExpressionRecipe(paceFactor: 1.04, noiseDelta: 0.10, cadenceDelta: 0.12,
-                             lowShelfDB: 1.5, presenceDB: 0.8, highShelfDB: 1.0)
+            ExpressionRecipe(paceFactor: 1.1,
+                             lowShelfDB: 1.5, presenceDB: 0.8, highShelfDB: 1,
+                             prosody: ProsodySettings(focus: 0.55, phraseFinal: 1,
+                                 deaccentRepeats: 0.6, contrast: 0.1,
+                                 nucleusHold: 0.7, accentDB: 3.5, lift: -0.3))
         case .angry:
-            ExpressionRecipe(paceFactor: 0.94, noiseDelta: 0.14, cadenceDelta: 0.10,
-                             lowShelfDB: 1.5, presenceDB: 2.5, highShelfDB: 0.8)
+            ExpressionRecipe(paceFactor: 0.9,
+                             lowShelfDB: 1.5, presenceDB: 2.5, highShelfDB: 0.8,
+                             prosody: ProsodySettings(focus: 1, phraseFinal: 0,
+                                 deaccentRepeats: 0.3, contrast: 1,
+                                 nucleusHold: 0, accentDB: 6, lift: 1))
         }
     }
 }
@@ -95,11 +117,27 @@ public struct SentenceExpression: Equatable, Codable, Sendable {
         let pace = 1 + (r.paceFactor - 1) * amount
         out.lengthScale = Self.clamp(base.lengthScale * pace,
                                      SynthesisSettings.lengthScaleRange)
-        out.noiseScale = Self.clamp(base.noiseScale + r.noiseDelta * amount,
-                                    SynthesisSettings.noiseScaleRange)
-        out.noiseW = Self.clamp(base.noiseW + r.cadenceDelta * amount,
-                                SynthesisSettings.noiseWRange)
+        // The noise scales used to move here too. They did not encode anything:
+        // both change which draw comes out, so two takes of one preset already
+        // differed by more than two presets did.
         return out
+    }
+
+    /// How this expression reads, at this intensity. At zero it is the reading
+    /// the text would have got anyway.
+    public var prosody: ProsodySettings {
+        let r = preset.recipe
+        let n = Self.clamp(intensity, 0 ... 1)
+        let base = ProsodySettings()
+        func mix(_ a: Double, _ b: Double) -> Double { a + (b - a) * n }
+        return ProsodySettings(
+            focus: mix(base.focus, r.prosody.focus),
+            phraseFinal: mix(base.phraseFinal, r.prosody.phraseFinal),
+            deaccentRepeats: mix(base.deaccentRepeats, r.prosody.deaccentRepeats),
+            contrast: mix(base.contrast, r.prosody.contrast),
+            nucleusHold: mix(base.nucleusHold, r.prosody.nucleusHold),
+            accentDB: mix(base.accentDB, r.prosody.accentDB),
+            lift: mix(base.lift, r.prosody.lift))
     }
 
     private static func clamp<T: Comparable>(_ value: T, _ range: ClosedRange<T>) -> T {
@@ -126,13 +164,15 @@ public struct ExpressionTone: Equatable, Sendable {
 }
 
 private struct ExpressionRecipe {
+    /// Global pace. Only values that clear the graph's per-token rounding are
+    /// worth setting: below about ten percent nothing moves at all.
     var paceFactor: Double = 1
-    var noiseDelta: Double = 0
-    var cadenceDelta: Double = 0
     var lowShelfDB: Double = 0
     var presenceDB: Double = 0
     var highShelfDB: Double = 0
     var outputDB: Double = 0
+    /// How this expression reads — where the weight falls, and how hard.
+    var prosody = ProsodySettings()
 }
 
 /// Offline, sample-rate-aware *linear* tone shaping. Two complete filter paths

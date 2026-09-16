@@ -30,13 +30,25 @@ public struct ProsodySettings: Equatable, Sendable {
     public var deaccentRepeats: Double
     /// How much unstressed material gives way, to keep the beats uneven.
     public var contrast: Double
+    /// Extra hold on every accented nucleus, past what focus alone gives.
+    public var nucleusHold: Double
+    /// What a full accent is worth in level.
+    public var accentDB: Double
+    /// Where the line sits between flat and lifted, -1 to 1. The only control
+    /// the model answers to with its own intonation rather than a filter.
+    public var lift: Double
 
-    public init(focus: Double = 0.7, phraseFinal: Double = 0.5,
-                deaccentRepeats: Double = 0.6, contrast: Double = 0.35) {
+    public init(focus: Double = 0.7, phraseFinal: Double = 0.15,
+                deaccentRepeats: Double = 0.6, contrast: Double = 0.12,
+                nucleusHold: Double = 0, accentDB: Double = TimingPlan.fullAccentDB,
+                lift: Double = 0) {
         self.focus = focus
         self.phraseFinal = phraseFinal
         self.deaccentRepeats = deaccentRepeats
         self.contrast = contrast
+        self.nucleusHold = nucleusHold
+        self.accentDB = accentDB
+        self.lift = lift
     }
 }
 
@@ -55,11 +67,17 @@ public struct ProsodicGroup: Equatable, Sendable {
 }
 
 public enum Prosody {
-    /// The hold each rule spends at full strength. Small on purpose: this runs
-    /// on every sentence without being asked, so it has to be wrong quietly.
+    /// What each rule is worth at full strength.
+    ///
+    /// These are large because anything smaller does not exist. The graph rounds
+    /// every token's duration up to a whole frame, and the median token on this
+    /// voice is two frames — so a 5% direction moves 1 token in 123, and a 10%
+    /// one moves 2. A direction has to reach roughly 20% before it is audible at
+    /// all. The defaults are scaled down to compensate, which keeps the reading
+    /// that was approved by ear exactly where it was.
     private static let focusHold = 0.3
-    private static let phraseFinalHold = 0.35
-    private static let contrastHold = 0.12
+    private static let phraseFinalHold = 1.15
+    private static let contrastHold = 0.35
 
     private static let terminators: Set<Character> = [".", "?", "!"]
 
@@ -118,8 +136,11 @@ public enum Prosody {
                 let repeated = spoken.contains(groupKey(nucleus.phonemes))
                 let strength = clamp(settings.focus)
                     * (repeated ? 1 - clamp(settings.deaccentRepeats) : 1)
-                directions[nucleus.word] = TimingPlan.accented(
-                    word: nucleus.word, stretch: 1 + focusHold * strength, strength: strength)
+                directions[nucleus.word] = SoundDirection(
+                    word: nucleus.word,
+                    stretch: 1 + focusHold * strength,
+                    accent: 0.6 * strength + max(0, settings.nucleusHold),
+                    accentDB: max(0, settings.accentDB) * strength)
             }
 
             // A phrase settles at its edge whether or not the point was made there.

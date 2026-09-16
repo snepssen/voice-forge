@@ -766,3 +766,44 @@ assumed: the patched model exits 0, and the pre-swap model recovered from commit
 gate reproduces the failure it exists to catch.
 
     voices packaged: snepssen (1, timing verified)
+
+### Shipped as a patch, without the selector — 2026-09-16
+
+The automatic reading stays and is now unconditional: no switch in either app,
+because a person opening this tool does not need to be asked whether the words
+should be paced. `automaticDynamics` remains in both cores so the flat engine is
+still reachable in a test — every printed figure in this app was measured
+against it and has to stay true of it.
+
+The expression selector is gone from both interfaces. Rebuilding it on the
+timing layer did work, in the sense that the six presets became measurably
+different — 28–30% apart in duration where they had been 3%, and 4.8 to 12.0
+semitones apart in pitch range once the stress marks were rewritten per preset.
+It was still not a convincing set of emotions, because this voice is not
+style-conditioned and no amount of timing and level makes it one.
+
+Three separate reasons the original presets were inaudible, all measured:
+
+- Pace moved 2.6% for a 12.8% request. The graph rounds each token's duration up
+  to a whole frame and the median token here is 2 frames, so 98% of tokens did
+  not move at all. Nothing under about ±20% exists.
+- The two noise scales only change which draw comes out. Two takes of one preset
+  already differed by more than two presets did.
+- What was left was 1–2.5 dB of broadband shelf, which the ear reads as level.
+  The listener's report was "no difference, but a bit louder" — exactly that.
+
+The one genuinely new finding is kept, in `Phonology.restress`: the stress marks
+are an intonation control the model answers to natively, because it was trained
+on them. Stripping them narrows the measured pitch range from about 7.8 to 5.8
+semitones; promoting every secondary to primary widens it to about 9.4. That is
+the model voicing the line differently, not a filter bending audio it already
+produced — the thing every rejected pitch experiment here was reaching for. It
+is wired through both cores and sits at zero for the default reading.
+
+The expression core is retained rather than deleted, unreferenced by any
+interface. Deleting it is a one-line follow-up if the dead weight is not wanted.
+
+No engine change. The decision was to stay a small tool rather than become a
+multi-gigabyte one, and the conditioned models that would do emotion properly —
+style vectors, reference audio, prompt conditioning — all cost the single
+executable and the no-Python rule this project is built around.

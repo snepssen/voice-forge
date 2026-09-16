@@ -154,10 +154,13 @@ public final class VoiceEngine: @unchecked Sendable {
             if sentence.paragraph != paragraph { spoken = []; paragraph = sentence.paragraph }
             let expression = expressions[sentence.expressionKey] ?? .neutral
             let sentenceSettings = expression.applying(to: settings)
+            let readingSettings = expression.prosody
             let directions = reading(for: sentence.text, settings: sentenceSettings,
-                                     dictionary: dictionary, spoken: spoken)
+                                     dictionary: dictionary, spoken: spoken,
+                                     prosody: readingSettings)
             let raw = try renderSentence(sentence.text, settings: sentenceSettings,
-                                         dictionary: dictionary, directions: directions)
+                                         dictionary: dictionary, directions: directions,
+                                         lift: readingSettings.lift)
             spoken.formUnion(spokenKeys(for: sentence.text, settings: sentenceSettings,
                                         dictionary: dictionary))
             let samples = ExpressionDSP.process(raw, from: previousTone,
@@ -209,12 +212,25 @@ public final class VoiceEngine: @unchecked Sendable {
     /// the caller never has to ask which of those is the case.
     public func reading(for text: String, settings: SynthesisSettings,
                         dictionary: [PronunciationEntry] = [],
-                        spoken: Set<String> = []) -> [SoundDirection] {
+                        spoken: Set<String> = [],
+                        prosody: ProsodySettings = ProsodySettings()) -> [SoundDirection] {
         guard settings.automaticDynamics, directsTiming else { return [] }
+        return Prosody.automaticDirections(
+            layout(for: text, settings: settings, dictionary: dictionary, lift: prosody.lift),
+            settings: prosody, spoken: spoken)
+    }
+
+    /// The tokens one sentence becomes, after any lift has moved its stress marks.
+    ///
+    /// Everything that needs a layout comes through here. A direction addresses
+    /// a token by index, so if the reading were planned against one phoneme
+    /// string and the audio rendered from another, every hold would land on the
+    /// wrong sound — and a lift changes the string.
+    private func layout(for text: String, settings: SynthesisSettings,
+                        dictionary: [PronunciationEntry], lift: Double) -> TokenLayout {
         let phonemized = preparedPhonemes(for: text, settings: settings,
                                           dictionary: dictionary).encoded
-        return Prosody.automaticDirections(tokenLayout(phonemized, settings: settings),
-                                           spoken: spoken)
+        return tokenLayout(Phonology.restress(phonemized, lift: lift), settings: settings)
     }
 
     /// The words this sentence has now said, to carry into the next one.
@@ -228,9 +244,10 @@ public final class VoiceEngine: @unchecked Sendable {
     /// One sentence, one inference call. Never less, never more.
     public func renderSentence(_ text: String, settings: SynthesisSettings,
                                dictionary: [PronunciationEntry] = [],
-                               directions: [SoundDirection] = []) throws -> [Float] {
+                               directions: [SoundDirection] = [],
+                               lift: Double = 0) throws -> [Float] {
         try renderTimed(text, settings: settings, dictionary: dictionary,
-                        directions: directions).samples
+                        directions: directions, lift: lift).samples
     }
 
     /// The same call, keeping what the model said about its own timing.
@@ -240,11 +257,9 @@ public final class VoiceEngine: @unchecked Sendable {
     /// exact samples of the sound it belongs to.
     public func renderTimed(_ text: String, settings: SynthesisSettings,
                             dictionary: [PronunciationEntry] = [],
-                            directions: [SoundDirection] = [])
+                            directions: [SoundDirection] = [], lift: Double = 0)
         throws -> (samples: [Float], layout: TokenLayout, frames: [Float]) {
-        let phonemized = preparedPhonemes(for: text, settings: settings,
-                                          dictionary: dictionary).encoded
-        let layout = tokenLayout(phonemized, settings: settings)
+        let layout = layout(for: text, settings: settings, dictionary: dictionary, lift: lift)
         guard !layout.ids.isEmpty else { return ([], layout, []) }
 
         // A vector of ones is not a no-op we hope for -- it is the patch's

@@ -24,7 +24,7 @@
 
 import { clauseMarks } from "./script.js";
 import { primaryStress, secondaryStress } from "./phonology.js";
-import { accentedDirection, wordPhonemes, type SoundDirection } from "./timingPlan.js";
+import { fullAccentDB, wordPhonemes, type SoundDirection } from "./timingPlan.js";
 import type { TokenLayout } from "../main/engine.js";
 
 export interface ProsodySettings {
@@ -36,14 +36,31 @@ export interface ProsodySettings {
   deaccentRepeats: number;
   /** How much unstressed material gives way, to keep the beats uneven. */
   contrast: number;
+  /** Extra hold on every accented nucleus, past what focus alone gives. */
+  nucleusHold: number;
+  /** What a full accent is worth in level. */
+  accentDB: number;
+  /** Where the line sits between flat and lifted, -1 to 1. The only control
+   * the model answers to with its own intonation rather than a filter. */
+  lift: number;
 }
 
 export const defaultProsody = (): ProsodySettings =>
-  ({ focus: 0.7, phraseFinal: 0.5, deaccentRepeats: 0.6, contrast: 0.35 });
+  ({ focus: 0.7, phraseFinal: 0.15, deaccentRepeats: 0.6, contrast: 0.12,
+     nucleusHold: 0, accentDB: fullAccentDB, lift: 0 });
 
-/** The hold each rule spends at full strength. Small on purpose: this runs on
- * every sentence without being asked, so it has to be wrong quietly. */
-const holds = { focus: 0.3, phraseFinal: 0.35, contrast: 0.12 } as const;
+/**
+ * What each rule is worth at full strength.
+ *
+ * These are large because anything smaller does not exist. The graph rounds
+ * every token's duration up to a whole frame, and the median token on this
+ * voice is two frames — so a 5% direction moves 1 token in 123, and a 10% one
+ * moves 2. A direction has to reach roughly 20% before it is audible at all.
+ * The defaults above are scaled down to compensate, which keeps the reading
+ * that was approved by ear exactly where it was while giving a preset somewhere
+ * to go.
+ */
+const holds = { focus: 0.3, phraseFinal: 1.15, contrast: 0.35 } as const;
 
 export type Prominence = "accented" | "secondary" | "reduced";
 
@@ -112,8 +129,12 @@ export function automaticDirections(layout: TokenLayout,
       const repeated = spoken.has(groupKey(nucleus.phonemes));
       const strength = clamp(settings.focus, 0, 1)
         * (repeated ? 1 - clamp(settings.deaccentRepeats, 0, 1) : 1);
-      directions.set(nucleus.word,
-        accentedDirection(nucleus.word, 1 + holds.focus * strength, strength));
+      directions.set(nucleus.word, {
+        word: nucleus.word,
+        stretch: 1 + holds.focus * strength,
+        accent: 0.6 * strength + Math.max(0, settings.nucleusHold),
+        accentDB: Math.max(0, settings.accentDB) * strength,
+      });
     }
 
     // A phrase settles at its edge whether or not the point was made there.

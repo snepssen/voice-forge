@@ -92,4 +92,31 @@ public enum Phonology {
     public static func isStress(_ symbol: String) -> Bool {
         symbol == String(primaryStress) || symbol == String(secondaryStress)
     }
+
+    /// Lift or flatten the line by moving its stress marks.
+    ///
+    /// This is the one intonation control the model answers to natively. Piper
+    /// was trained on these marks, so changing them asks it to voice the line
+    /// differently rather than bending audio it has already voiced — which is
+    /// what every rejected pitch experiment in this project was doing. Measured
+    /// on the bundled voice over one sentence: stripping the marks narrows the
+    /// pitch range to about 5.8 semitones, leaving them gives about 7.8, and
+    /// promoting every secondary to primary gives about 9.4. It changes
+    /// articulation as well as pitch, because a stressed vowel is not a reduced
+    /// one.
+    ///
+    /// `lift` runs -1 to 1. Zero is untouched, and untouched has to stay
+    /// byte-identical: the parity suite compares these strings across cores.
+    public static func restress(_ phonemes: String, lift: Double) -> String {
+        guard lift != 0 else { return phonemes }
+        if lift > 0 {
+            guard lift >= 0.5 else { return phonemes }
+            return phonemes.replacingOccurrences(of: String(secondaryStress),
+                                                 with: String(primaryStress))
+        }
+        let flattened = phonemes.replacingOccurrences(of: String(primaryStress),
+                                                      with: String(secondaryStress))
+        guard lift <= -0.5 else { return flattened }
+        return flattened.replacingOccurrences(of: String(secondaryStress), with: "")
+    }
 }

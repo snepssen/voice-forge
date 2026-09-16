@@ -287,71 +287,9 @@ struct Workbench: View {
     private var controls: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                delivery; performance; pauses; scales; advanced; exportPanel
+                pauses; scales; advanced; exportPanel
             }
                 .padding(14)
-        }
-    }
-
-    private var performance: some View {
-        Panel(title: "Performance") {
-            if let sentence = studio.selectedSentence {
-                let key = sentence.expressionKey
-                let current = studio.expression(for: key)
-                Picker("Expression", selection: Binding(
-                    get: { studio.expression(for: key).preset },
-                    set: { preset in
-                        var value = studio.expression(for: key)
-                        value.preset = preset
-                        studio.setExpression(value, for: key)
-                    })) {
-                        ForEach(ExpressionPreset.allCases) { preset in
-                            Text(preset.name).tag(preset)
-                        }
-                    }
-                Dial(label: "Intensity", value: Binding(
-                    get: { studio.expression(for: key).intensity },
-                    set: { intensity in
-                        var value = studio.expression(for: key)
-                        value.intensity = intensity
-                        studio.setExpression(value, for: key)
-                    }), range: 0 ... 1, step: 0.01, format: "%.2f",
-                    note: current.preset.note)
-                    .disabled(current.preset == .neutral)
-                Dial(label: "Transition", value: Binding(
-                    get: { studio.expression(for: key).transitionSeconds },
-                    set: { seconds in
-                        var value = studio.expression(for: key)
-                        value.transitionSeconds = seconds
-                        studio.setExpression(value, for: key)
-                    }), range: 0 ... 1, step: 0.01, format: "%.2f s",
-                    note: "How gradually the tone changes at the start of this sentence.")
-                    .disabled(current.preset == .neutral)
-                HStack {
-                    Button("Apply & render this sentence") {
-                        Task { await studio.reroll(sentence.id) }
-                    }
-                    .disabled(studio.busy != nil)
-                    Spacer()
-                    Button("Clear all") { studio.clearExpressions() }
-                        .buttonStyle(.plain).foregroundStyle(Monokai.comment)
-                        .disabled(studio.expressions.isEmpty)
-                }
-                Text("Piper supplies pace and rhythmic variation; a light, linear tone transition follows. These are delivery directions, not synthetic acting: the source performance sets the emotional ceiling.")
-                    .font(.caption).foregroundStyle(Monokai.comment)
-                    .fixedSize(horizontal: false, vertical: true)
-                if sentence.expression != current {
-                    Text("This assignment has not been rendered yet. Apply & render it to hear the change.")
-                        .font(.caption).foregroundStyle(Monokai.orange)
-                }
-            } else {
-                Text("Render, then select a sentence in the take to give it an expression. Each sentence can move smoothly from the state before it.")
-                    .font(.caption).foregroundStyle(Monokai.comment)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !studio.expressions.isEmpty {
-                    Button("Clear all expressions") { studio.clearExpressions() }
-                }
-            }
         }
     }
 
@@ -433,28 +371,6 @@ struct Workbench: View {
                  note: "How much the rhythm differs between takes. At zero, two takes of a line are near-identical — repeatable, and noticeably mechanical.",
                  reference: 0.8)
         }
-    }
-
-    private var delivery: some View {
-        Panel(title: "Delivery") {
-            Toggle("Let the text decide the delivery",
-                   isOn: $studio.settings.automaticDynamics)
-                .foregroundStyle(Monokai.fg)
-                .disabled(!studio.directsTiming)
-            Text(deliveryNote)
-                .font(.caption).foregroundStyle(Monokai.comment)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var deliveryNote: String {
-        guard studio.directsTiming else {
-            return "This voice renders every sound at the length the model predicted. "
-                 + "Only a voice built for it can be directed this way."
-        }
-        return studio.settings.automaticDynamics
-            ? "The point of each phrase is held and lifted, a phrase settles at its clause mark, and a word already said in the paragraph steps back."
-            : "Every sound lasts exactly as long as the model predicted. This is what every figure printed above was measured against."
     }
 
     private var advanced: some View {
