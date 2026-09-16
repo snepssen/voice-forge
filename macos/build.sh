@@ -93,11 +93,24 @@ while IFS= read -r name; do
   for part in "en_US-$name-medium.onnx" "en_US-$name-medium.onnx.json"; do
     [ -s "$VOICE_RESOURCES/$part" ] || { echo "error: $name is packaged without $part" >&2; exit 1; }
   done
+  # Ask the packaged file itself, not the one in the source tree.
+  #
+  # Every other check here compares names, which is exactly the hole a stale
+  # staged copy fits through: SwiftPM keeps its own copy under .build, the name
+  # never changes, and an app can ship a model that is the wrong bytes under the
+  # right filename. That failure has no symptom -- the app loads, renders, and
+  # is simply flat, because a voice that cannot be told its timing is told
+  # nothing and says so to nobody.
+  "$PRODUCTS/vfrender" timing "$VOICE_RESOURCES/en_US-$name-medium.onnx" >/dev/null || {
+    echo "error: the packaged $name cannot be told its own timing" >&2
+    echo "  the app would render flat, with the dynamics silently absent" >&2
+    echo "  try: rm -rf .build and build again, or repatch the source voice" >&2
+    exit 1; }
   voice_count=$((voice_count + 1))
 done < <(echo "$APP_VOICES")
 [ -d "$VOICE_RESOURCES/espeak-ng-data" ] || {
   echo "error: espeak-ng-data did not land in the app" >&2; exit 1; }
-echo "voices packaged: $(echo "$APP_VOICES" | tr '\n' ' ')($voice_count)$([ "$pruned" -gt 0 ] && echo ", $pruned pruned")"
+echo "voices packaged: $(echo "$APP_VOICES" | tr '\n' ' ')($voice_count, timing verified)$([ "$pruned" -gt 0 ] && echo ", $pruned pruned")"
 
 # The training guide travels with the app, so "How to train one" works with no
 # network and no repository checkout.

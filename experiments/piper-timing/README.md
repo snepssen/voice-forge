@@ -748,3 +748,21 @@ to stay true of it.
 
 Both cores now run the full path against the patched graph: 208 checks and 269,
 27 parity cases, and the end-to-end smoke at 35.39 s.
+
+### The gate now asks the packaged file — 2026-09-16
+
+`build.sh` verified voices by name, which is the hole a stale staged copy fits
+through: SwiftPM keeps its own copy under `.build`, the filename never changes,
+and the app can ship the wrong bytes under the right name. Before this feature
+that had a symptom — Gateway Forge shipped a voice nobody had trained. Now it
+has none: a model that cannot be told its timing loads, renders, and is simply
+flat, with the dynamics silently absent and every suite still green.
+
+`vfrender timing <model.onnx>` opens any model file and exits non-zero if it has
+no `vf_duration_factors` input. The gate points it at the copy **inside the
+built app**, because that is the one that ships. Verified both ways rather than
+assumed: the patched model exits 0, and the pre-swap model recovered from commit
+2148e8e exits 1. Packaging a stale model into the built app and re-running the
+gate reproduces the failure it exists to catch.
+
+    voices packaged: snepssen (1, timing verified)
