@@ -82,5 +82,41 @@ new synthesis take, duration change, EQ, or app integration is involved. Delay
 compensation and synthetic pitch/timing checks pass; listening approval is
 pending. This is post-processing, not an explicit pitch input to Piper.
 Validate word mapping and quality before app integration.
+
+On 2026-09-16 the user found this contour clean but barely different. Analysis
+of the actual speech found the second rise was scheduled after the final
+voiced region; token alignment and sine calibration were insufficient to place
+it. A hash-bound, manually placed test now targets the voiced region and uses
+stronger pitch contrast. Paired AC/CC estimates confirm upward shifts in both
+target regions, with the recording's duration preserved. The user rejects this
+revision as riding an oscillating wave: “I didn't say you StOoOlEiT”. This is
+not approved prosody, and this fixed-clip correction is not a general word
+aligner. The measurements proved pitch movement, not natural intonation.
+
+Keep the preferred vowel-timing result separate from these rejected pitch
+curves. Do not integrate the contours or respond by making them still stronger.
+A user-performed reference was requested so placement and phrase shape need
+not be inferred from written arrows. The user has now supplied a 10.7-second
+recording with three deliveries. The local analysis preserves each take as
+original PCM, records source hashes, and measures relative pitch only where
+two estimators agree. Estimated activity spans are 1.77, 1.52, and 2.14 seconds;
+the third has the widest measured pitch range. The user selected Take 3.
+
+A local recognizer identifies the same six words in both recordings. Its
+approximate emission landmarks, combined with voiced pitch measurements,
+indicate Take 3's high “you”, lower “stole”, and lifted “it”. A first audition
+transfers these broad relative word registers while retaining the preferred
+synthetic timing. It is not a full prosody transfer or forced word alignment.
+The final word's measured shift has unresolved octave ambiguity, explicitly
+recorded as unverified; listener approval is pending. No emotional label or
+finished capability is claimed. All pitch changes remain experiment-only.
+
+The user then supplied a cleaner, normalized R7 recording as the updated
+reference. It contains one rendition, with different measured pitch relations:
+lower “you”, higher “stole”, then higher “it”. New analysis and a separate
+word-register audition use R7's actual landmarks instead of old Take 3's
+pattern. Synthetic pacing is retained; no full performance match is claimed.
+Output pitch ambiguity persists on two words and is explicitly unverified.
+Listener approval remains pending, and the app remains untouched.
 Believable emotional acting still requires separate evidence; timing control
 alone does not demonstrate happiness, anger, flirtation, or intimacy.
