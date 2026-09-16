@@ -220,8 +220,8 @@ asks for the same amount but gives each sound only as much as its class can take
 the stops keep their exact predicted duration. The last take adds an accent: more
 hold on the stressed vowel alone, and a level lift shaped around that vowel rather
 than across the word &mdash; full value over the nucleus, ramped either side, so the
-loudest moment is where the accent actually is. The three accent takes differ only
-in that level. No pitch is shifted anywhere.</p>
+loudest moment is where the accent actually is, at the settled +${fullAccentDB}&nbsp;dB.
+No pitch is shifted anywhere.</p>
 ${page.join('\n')}
 <p class="note">Acoustic noise is the model's own ${textured.noiseScale}; duration noise is zero, so
 timing is deterministic and one take differs from another by the direction. Signal
