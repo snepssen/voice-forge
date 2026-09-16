@@ -18,6 +18,7 @@ PAGE = {
         "fonts": "fonts.css",
         "description": "A text-to-speech tool with the synthesiser’s dials on the outside, built on a voice trained from about forty minutes of my own speech.",
         "og_description": None,
+        "contact_note": 'There’s no updater and no crash reporter, which is deliberate — and it means a failure has no way of reaching me on its own. The app has a Help sheet that copies its version, platform and voices to the clipboard for you to read before you send it. Your script and your dictionary are never in it.',
         "subhead": "A text-to-speech tool with the synthesiser’s dials on the outside — built on a voice trained from about forty minutes of my own speech.",
         "stats": [
             "<b>One bundled voice</b> · 22,050 Hz",
@@ -69,13 +70,6 @@ PAGE = {
         "body": "07.html",
     },
     {"grid": True},
-    {
-        "id": "contact",
-        "jump": "Contact",
-        "eyebrow": "Get in touch",
-        "heading": "If it stops working, tell me",
-        "body": "contact.html",
-    },
     ],
     "footer": [
         "Voice Forge · one bundled voice, trained on about forty minutes of my own speech ·\n  built with Piper/VITS, ONNX Runtime and espeak-ng.",

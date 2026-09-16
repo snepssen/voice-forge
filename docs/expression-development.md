@@ -148,6 +148,35 @@ test; unchanged duration does not negate perceived stretching. Stop promoting
 this shifted version, preserve the neutral listening pass as control-only, and
 require a causal resynthesis test before another expressive audition. No new
 clip or app change accompanies this rejection.
+
+The next approved step is a bounded original-duration pitch diagnostic. It reuses
+a saved Suno baseline with normal acoustic noise and no vowel extension. A
+waveform/pulse audit finds floor-sensitive tracking at the onset of “stole”, but
+more consistent tracking in its middle. No analysis setting is declared corrected.
+Constant +1 and +4.45-semitone offsets measure approximately +0.94 and +4.38 in
+that stable core. All versions retain source duration and unchanged samples
+outside the approximate word region; there is no expressive curve or gain fix.
+
+A dry / neutral / small-shift / larger-shift listening sequence is available in
+the experiment's `original-duration-fixed-pitch-verified` directory. Listening
+approval is pending for this new source and all its controls. A no-op in the
+first constant-shift implementation was caught and corrected before audition;
+known-tone and output-identity regressions now cover it. The alternative 40Hz
+analysis is retained as a sensitivity test, not promoted based on measurements.
+WORLD, the Rode voice, additional sentences and app integration remain deferred
+until this controlled listening check establishes whether fixed pitch movement
+preserves the voice. The pulse plot guided selection of the measurement region,
+not a claim that the complete audible word is artifact-free.
+
+The user localizes slight crackling to “t” in the +1 and +4.45 versions of that
+sequence. A new onset-guard test preserves the dry source through 1.390s, then
+crossfades to the existing shifted output by 1.410s. This protects both the
+consonant and the disputed vowel onset; later shifted audio stays sample-identical
+to the prior variants. The shift magnitude is retained, but its onset is delayed.
+This is a manual fixed-clip ablation, not a general consonant detector or proven
+fix. The new neutral control and both guarded shifts await listening for removal
+of the “t” crackle without merely moving an artifact into the vowel. Seven
+diagnostic tests pass; app integration and alternative-renderer work remain deferred.
 See the experiment README and its diagnostic manifests for reproducible evidence.
 Believable emotional acting still requires separate evidence; timing control
 alone does not demonstrate happiness, anger, flirtation, or intimacy.
