@@ -41,6 +41,8 @@ public enum VoiceEngineError: LocalizedError {
 /// one running long or landing quiet.
 public struct RenderedSentence: Sendable {
     public var id: Int
+    public var expressionKey: String
+    public var expression: SentenceExpression
     public var text: String
     public var samples: [Float]
     /// Silence laid *after* this sentence before the next one begins.
@@ -50,9 +52,12 @@ public struct RenderedSentence: Sendable {
     /// Words per minute over this sentence alone, silence included.
     public var wordsPerMinute: Double
 
-    public init(id: Int, text: String, samples: [Float], trailingGap: Double,
+    public init(id: Int, expressionKey: String = "",
+                expression: SentenceExpression = .neutral,
+                text: String, samples: [Float], trailingGap: Double,
                 seconds: Double, peakDBFS: Double, wordsPerMinute: Double) {
-        self.id = id; self.text = text; self.samples = samples
+        self.id = id; self.expressionKey = expressionKey; self.expression = expression
+        self.text = text; self.samples = samples
         self.trailingGap = trailingGap; self.seconds = seconds
         self.peakDBFS = peakDBFS; self.wordsPerMinute = wordsPerMinute
     }
@@ -135,12 +140,21 @@ public final class VoiceEngine: @unchecked Sendable {
     /// silence between them.
     public func render(_ script: Script, settings: SynthesisSettings,
                        dictionary: [PronunciationEntry] = [],
+                       expressions: [String: SentenceExpression] = [:],
                        onSentence: ((Int, Int) -> Void)? = nil) throws -> [RenderedSentence] {
         var out: [RenderedSentence] = []
+        var previousTone = SentenceExpression.neutral.tone
         for (i, sentence) in script.sentences.enumerated() {
             onSentence?(i, script.sentences.count)
-            let samples = try renderSentence(sentence.text, settings: settings,
-                                             dictionary: dictionary)
+            let expression = expressions[sentence.expressionKey] ?? .neutral
+            let sentenceSettings = expression.applying(to: settings)
+            let raw = try renderSentence(sentence.text, settings: sentenceSettings,
+                                         dictionary: dictionary)
+            let samples = ExpressionDSP.process(raw, from: previousTone,
+                                                to: expression.tone,
+                                                transitionSeconds: expression.transitionSeconds,
+                                                sampleRate: sampleRate)
+            previousTone = expression.tone
             // The gap that follows this sentence. A paragraph break replaces
             // the sentence gap rather than adding to it -- two silences laid
             // end to end is how a "0.6 s paragraph" quietly becomes 0.68.
@@ -148,9 +162,10 @@ public final class VoiceEngine: @unchecked Sendable {
                 ? 0
                 : (sentence.endsParagraph ? settings.paragraphGap : settings.sentenceGap)
             let seconds = Audio.seconds(samples, at: sampleRate)
-            let words = sentence.text.split(whereSeparator: \.isWhitespace).count
+            let words = PerformanceMarkup.wordCount(sentence.text)
             out.append(RenderedSentence(
-                id: sentence.id, text: sentence.text, samples: samples,
+                id: sentence.id, expressionKey: sentence.expressionKey,
+                expression: expression, text: sentence.text, samples: samples,
                 trailingGap: gap, seconds: seconds,
                 peakDBFS: Audio.peakDBFS(samples),
                 wordsPerMinute: seconds > 0 ? Double(words) / seconds * 60 : 0))
@@ -171,8 +186,8 @@ public final class VoiceEngine: @unchecked Sendable {
     /// One sentence, one inference call. Never less, never more.
     public func renderSentence(_ text: String, settings: SynthesisSettings,
                                dictionary: [PronunciationEntry] = []) throws -> [Float] {
-        let phonemized = try phonemes(for: text, settings: settings,
-                                      dictionary: dictionary).phonemes
+        let phonemized = preparedPhonemes(for: text, settings: settings,
+                                          dictionary: dictionary).encoded
         let ids = phonemeIDs(phonemized, settings: settings)
         guard !ids.isEmpty else { return [] }
         return try infer(ids: ids, settings: settings)
@@ -190,17 +205,112 @@ public final class VoiceEngine: @unchecked Sendable {
     public func phonemes(for text: String, settings: SynthesisSettings,
                          dictionary: [PronunciationEntry] = [])
         -> (phonemes: String, applied: Set<String>) {
-        // The one rewrite of the listener's words, and it is theirs to switch
-        // off. Applied before phonemizing rather than inside the phonemizer,
-        // so what the dictionary matches against is what was actually spoken.
-        let source = settings.spokenCurrency ? Script.spokenCurrency(text) : text
-        let base = (try? phonemizer.phonemize(source, dropFinalStop: settings.dropFinalFullStop)) ?? ""
-        guard !dictionary.isEmpty else { return (base, []) }
+        let prepared = preparedPhonemes(for: text, settings: settings, dictionary: dictionary)
+        return (prepared.display, prepared.applied)
+    }
+
+    private struct PreparedPhonemes {
+        var encoded: String
+        var display: String
+        var applied: Set<String>
+    }
+
+    // Private-use markers never reach the model as symbols. `phonemeIDs`
+    // turns them into extra PAD ids inside the one utterance.
+    private static let shortBeatMarker = "\u{E000}"
+    private static let mediumBeatMarker = "\u{E001}"
+    private static let longBeatMarker = "\u{E002}"
+    private static let focusBoundaryMarker = "\u{E003}"
+
+    private func preparedPhonemes(for text: String, settings: SynthesisSettings,
+                                  dictionary: [PronunciationEntry]) -> PreparedPhonemes {
+        let tokens = PerformanceMarkup.parse(text)
         var defaults: [String: String] = [:]
         for entry in dictionary {
             defaults[entry.key] = defaultPhonemes(for: entry.word)
         }
-        return PronunciationDictionary.apply(dictionary, to: base, defaults: defaults)
+
+        var encoded: [String] = []
+        var applied: Set<String> = []
+        var run: [PerformanceToken] = []
+
+        func appendRun(dropFinalStop: Bool) {
+            guard !run.isEmpty else { return }
+            var source = ""
+            var focusRanges: [Range<Int>] = []
+            for token in run {
+                guard case .text(let raw, let focused) = token else { continue }
+                let piece = settings.spokenCurrency ? Script.spokenCurrency(raw) : raw
+                let start = source.split(whereSeparator: \.isWhitespace).count
+                source += piece
+                if focused {
+                    let end = source.split(whereSeparator: \.isWhitespace).count
+                    if end > start { focusRanges.append(start ..< end) }
+                }
+            }
+
+            // A focus mark must not cause the unmarked words either side to be
+            // phonemized as separate mini-phrases. The clean run goes through
+            // espeak once; focus is then located by word-group ordinal.
+            var base = (try? phonemizer.phonemize(source, dropFinalStop: dropFinalStop)) ?? ""
+            if !dictionary.isEmpty {
+                let result = PronunciationDictionary.apply(dictionary, to: base,
+                                                           defaults: defaults)
+                base = result.phonemes
+                applied.formUnion(result.applied)
+            }
+            guard !base.isEmpty else { run = []; return }
+
+            var groups = base.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+            for range in focusRanges.reversed() {
+                guard range.lowerBound < groups.count else { continue }
+                let upper = min(range.upperBound, groups.count)
+                let focused = groups[range.lowerBound ..< upper].joined(separator: " ")
+                let marked = Self.focusBoundaryMarker + Self.promotingFocus(in: focused)
+                    + Self.focusBoundaryMarker
+                groups.replaceSubrange(range.lowerBound ..< upper, with: [marked])
+            }
+            encoded.append(groups.joined(separator: " "))
+            run = []
+        }
+
+        for token in tokens {
+            switch token {
+            case .beat(let beat):
+                appendRun(dropFinalStop: false)
+                switch beat {
+                case .short: encoded.append(Self.shortBeatMarker)
+                case .medium: encoded.append(Self.mediumBeatMarker)
+                case .long: encoded.append(Self.longBeatMarker)
+                }
+            case .text:
+                run.append(token)
+            }
+        }
+        appendRun(dropFinalStop: settings.dropFinalFullStop)
+
+        let value = encoded.joined(separator: " ")
+        var display = value.replacingOccurrences(of: Self.shortBeatMarker, with: "⟨short beat⟩")
+        display = display.replacingOccurrences(of: Self.mediumBeatMarker, with: "⟨beat⟩")
+        display = display.replacingOccurrences(of: Self.longBeatMarker, with: "⟨long beat⟩")
+        display = display.replacingOccurrences(of: Self.focusBoundaryMarker, with: "")
+        return PreparedPhonemes(encoded: value, display: display, applied: applied)
+    }
+
+    /// Promote secondary stress when available; otherwise give an unstressed
+    /// focused run a primary-stress cue. Already-primary words are left alone.
+    private static func promotingFocus(in phonemes: String) -> String {
+        if phonemes.contains("ˈ") { return phonemes }
+        if let secondary = phonemes.range(of: "ˌ") {
+            var out = phonemes
+            out.replaceSubrange(secondary, with: "ˈ")
+            return out
+        }
+        var groups = phonemes.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        if let index = groups.firstIndex(where: { $0.contains(where: \.isLetter) }) {
+            groups[index] = "ˈ" + groups[index]
+        }
+        return groups.joined(separator: " ")
     }
 
     /// What espeak says for a word on its own. Cached: a script re-rendered
@@ -239,6 +349,17 @@ public final class VoiceEngine: @unchecked Sendable {
         ids += pad
         for scalar in phonemized.unicodeScalars {
             let key = String(scalar)
+            let directedPads: Int? = switch key {
+            case Self.shortBeatMarker: PerformanceBeat.short.pads
+            case Self.mediumBeatMarker: PerformanceBeat.medium.pads
+            case Self.longBeatMarker: PerformanceBeat.long.pads
+            case Self.focusBoundaryMarker: 2
+            default: nil
+            }
+            if let directedPads {
+                for _ in 0 ..< directedPads { ids += pad }
+                continue
+            }
             guard let id = map[key] else { continue }
             ids += id
             ids += pad
@@ -303,9 +424,13 @@ public final class VoiceEngine: @unchecked Sendable {
     /// voice never learned, produces a word with a hole in it and no complaint.
     public func vocabularyCheck(_ phonemes: String) -> (kept: Int, dropped: [String]) {
         let map = config.phoneme_id_map
+        let audible = phonemes
+            .replacingOccurrences(of: "⟨short beat⟩", with: "")
+            .replacingOccurrences(of: "⟨beat⟩", with: "")
+            .replacingOccurrences(of: "⟨long beat⟩", with: "")
         var kept = 0
         var dropped: [String] = []
-        for scalar in phonemes.unicodeScalars {
+        for scalar in audible.unicodeScalars {
             let key = String(scalar)
             if map[key] != nil { kept += 1 }
             else if key != " " { dropped.append(key) }

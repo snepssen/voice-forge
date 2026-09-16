@@ -10,6 +10,9 @@ import { defaultSettings, ranges, type SynthesisSettings } from "../core/setting
 import { paceNote, noteFor } from "../core/voiceNotes.js";
 import { loudnessTargets } from "../core/loudness.js";
 import * as P from "../core/pronunciation.js";
+import { expressionNames, expressionNotes, expressionPresets,
+         normalizedExpression, type SentenceExpression } from "../core/expression.js";
+import { cueCounts } from "../core/performanceMarkup.js";
 
 // The bridge, as exposed by the preload.
 declare global {
@@ -25,13 +28,15 @@ const el = (tag: string, cls?: string, text?: string) => {
 };
 
 interface SentenceInfo {
-  id: number; text: string; trailingGap: number; seconds: number;
+  id: number; expressionKey: string; expression: SentenceExpression;
+  text: string; trailingGap: number; seconds: number;
   peakDBFS: number; wordsPerMinute: number;
 }
 
 const state = {
   text: "", voice: "",
   settings: defaultSettings(),
+  expressions: {} as Record<string, SentenceExpression>,
   exportSettings: { sampleRate: 48000, depth: 16 as 16 | 24, targetLUFS: -14 as number | null, truePeakCeiling: -1 },
   appearance: "system" as "system" | "light" | "dark",
   entries: [] as P.PronunciationEntry[],
@@ -231,9 +236,21 @@ function renderTake() {
     const row = el("div", "sentence");
     row.dataset["selected"] = String(state.selected === r.id);
     const top = el("div", "top");
-    top.append(el("span", "text", r.text), el("span", "secs", `${r.seconds.toFixed(2)}s`));
+    top.append(el("span", "text", r.text));
+    if (r.expression.preset !== "neutral") {
+      top.append(el("span", "expression", expressionNames[r.expression.preset]));
+    }
+    const cues = cueCounts(r.text);
+    if (cues.focus + cues.beats > 0) {
+      const parts = [cues.focus ? `${cues.focus} focus` : "", cues.beats ? `${cues.beats} beat` : ""].filter(Boolean);
+      top.append(el("span", "cue", parts.join(" · ")));
+    }
+    top.append(el("span", "secs", `${r.seconds.toFixed(2)}s`));
     row.append(top);
-    row.onclick = () => { state.selected = state.selected === r.id ? null : r.id; renderTake(); };
+    row.onclick = () => {
+      state.selected = state.selected === r.id ? null : r.id;
+      renderTake(); renderPerformance();
+    };
     if (state.selected === r.id) {
       const d = el("div", "detail");
       d.append(el("span", undefined, `${Math.round(r.wordsPerMinute)} wpm`),
@@ -254,6 +271,45 @@ function renderTake() {
     }
     return row;
   }));
+}
+
+function selectedSentence(): SentenceInfo | undefined {
+  return state.rendered.find(r => r.id === state.selected);
+}
+
+function renderPerformance() {
+  const sentence = selectedSentence();
+  $("expressionEmpty").hidden = !!sentence;
+  $("expressionControls").hidden = !sentence;
+  $("expressionTarget").textContent = sentence ? `sentence ${sentence.id + 1}` : "";
+  const clear = $("btnClearExpressions") as HTMLButtonElement;
+  clear.disabled = Object.keys(state.expressions).length === 0;
+  if (!sentence) return;
+
+  const value = normalizedExpression(state.expressions[sentence.expressionKey]);
+  const preset = $("expressionPreset") as HTMLSelectElement;
+  const intensity = $("expressionIntensity") as HTMLInputElement;
+  const transition = $("expressionTransition") as HTMLInputElement;
+  preset.value = value.preset;
+  intensity.value = String(value.intensity);
+  transition.value = String(value.transitionSeconds);
+  intensity.disabled = value.preset === "neutral";
+  transition.disabled = value.preset === "neutral";
+  $("expressionIntensityVal").textContent = value.intensity.toFixed(2);
+  $("expressionTransitionVal").textContent = `${value.transitionSeconds.toFixed(2)} s`;
+  $("expressionNote").textContent = expressionNotes[value.preset];
+  $("expressionPending").hidden = sentence.expression.preset === value.preset
+    && Math.abs(sentence.expression.intensity - value.intensity) < 0.000001
+    && Math.abs(sentence.expression.transitionSeconds - value.transitionSeconds) < 0.000001;
+}
+
+function updateSelectedExpression(change: Partial<SentenceExpression>) {
+  const sentence = selectedSentence();
+  if (!sentence) return;
+  const value = normalizedExpression({ ...normalizedExpression(state.expressions[sentence.expressionKey]), ...change });
+  if (value.preset === "neutral") delete state.expressions[sentence.expressionKey];
+  else state.expressions[sentence.expressionKey] = value;
+  renderPerformance(); renderTake(); save();
 }
 
 // ----------------------------------------------------------------- export
@@ -362,6 +418,22 @@ async function renderDictionary() {
     };
     row.append(del);
 
+    const helper = el("div", "sounds-like");
+    helper.append(el("span", "note", "Sounds like"));
+    const respelling = el("input") as HTMLInputElement;
+    respelling.type = "text"; respelling.placeholder = "ordinary spelling, e.g. cue brick";
+    const use = el("button", "toolbtn", "Use respelling") as HTMLButtonElement;
+    use.disabled = true;
+    respelling.oninput = () => { use.disabled = !respelling.value.trim(); };
+    use.onclick = async () => {
+      const value = await vf["defaultPhonemes"]!(state.voice, respelling.value.trim());
+      if (!value) return;
+      entry.ipa = value; input.value = value;
+      await refreshEntryStatus(entry, row); save();
+    };
+    helper.append(respelling, use, el("span", "note", "Converts to editable IPA"));
+    row.append(helper);
+
     row.append(el("span", "status"));
     void refreshEntryStatus(entry, row);
     return row;
@@ -429,7 +501,7 @@ async function addEntry(word: string) {
 // ------------------------------------------------------------------ work
 const request = () => ({
   text: state.text, voice: state.voice,
-  settings: state.settings, entries: state.entries,
+  settings: state.settings, entries: state.entries, expressions: state.expressions,
 });
 
 async function withBusy(label: string, fn: () => Promise<void>) {
@@ -458,7 +530,7 @@ function save() {
     void vf["saveState"]!({
       text: state.text, voice: state.voice, settings: state.settings,
       exportSettings: state.exportSettings, appearance: state.appearance,
-      entries: state.entries, calibrations: {},
+      entries: state.entries, expressions: state.expressions, calibrations: {},
     });
   }, 400);
 }
@@ -475,7 +547,7 @@ function paint() {
   const err = $("errorPanel");
   err.hidden = !state.error;
   err.textContent = state.error ?? "";
-  renderDials(); renderTake(); renderExport(); applyAppearance();
+  renderDials(); renderTake(); renderPerformance(); renderExport(); applyAppearance();
 }
 
 // ------------------------------------------------------------------- wire
@@ -488,6 +560,27 @@ $("btnRender").addEventListener("click", () => withBusy("Rendering", async () =>
 }));
 $("btnPlay").addEventListener("click", () => void audioEl.play());
 $("btnStop").addEventListener("click", () => { audioEl.pause(); audioEl.currentTime = 0; });
+$("expressionPreset").addEventListener("change", e => {
+  const preset = (e.target as HTMLSelectElement).value;
+  if (expressionPresets.includes(preset as typeof expressionPresets[number])) {
+    updateSelectedExpression({ preset: preset as typeof expressionPresets[number] });
+  }
+});
+$("expressionIntensity").addEventListener("input", e =>
+  updateSelectedExpression({ intensity: Number((e.target as HTMLInputElement).value) }));
+$("expressionTransition").addEventListener("input", e =>
+  updateSelectedExpression({ transitionSeconds: Number((e.target as HTMLInputElement).value) }));
+$("btnClearExpressions").addEventListener("click", () => {
+  state.expressions = {}; renderPerformance(); renderTake(); save();
+});
+$("btnRenderSentence").addEventListener("click", async () => {
+  const sentence = selectedSentence();
+  if (!sentence) return;
+  await withBusy("Re-rendering", async () => {
+    const res = await vf["renderOne"]!({ ...request(), id: sentence.id });
+    if (res) applyRenderResult(res);
+  });
+});
 $("btnExport").addEventListener("click", async () => {
   const r = await vf["exportTake"]!(state.exportSettings);
   if (r?.error) { state.error = r.error; } else if (r) { state.receipt = r; }
@@ -574,6 +667,7 @@ vf.onProgress(p => { if (state.busy) $("btnRender").textContent = `${state.busy}
 
 I have been building a text to speech tool, and the interesting part is not the voice — it is the timing. A comma is worth about half a second here, which is longer than most people expect.`;
   if (saved.settings) state.settings = saved.settings;
+  if (saved.expressions) state.expressions = saved.expressions;
   if (saved.exportSettings) state.exportSettings = saved.exportSettings;
   if (saved.appearance) state.appearance = saved.appearance;
   if (saved.entries) state.entries = saved.entries;

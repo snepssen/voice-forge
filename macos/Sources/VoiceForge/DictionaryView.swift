@@ -34,7 +34,7 @@ struct DictionaryView: View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Pronunciation").font(.title3).foregroundStyle(Monokai.fg)
-                Text("What you type is handed straight to the model — it speaks IPA, so this is not a translation step.")
+                Text("Edit IPA directly, or type an ordinary “sounds like” respelling under an entry and convert it. The result stays visible and editable before it reaches the model.")
                     .font(.caption).foregroundStyle(Monokai.comment)
             }
             Spacer()
@@ -142,6 +142,7 @@ struct DictionaryView: View {
 private struct EntryRow: View {
     @EnvironmentObject var studio: Studio
     @Binding var entry: PronunciationEntry
+    @State private var soundsLike = ""
 
     private var problem: PronunciationProblem {
         PronunciationDictionary.problem(with: entry.ipa, vocabulary: studio.vocabulary)
@@ -180,6 +181,20 @@ private struct EntryRow: View {
                     .contentShape(Rectangle())
                     .buttonStyle(.plain)
                     .foregroundStyle(Monokai.comment)
+            }
+            HStack(spacing: 8) {
+                Text("Sounds like")
+                    .font(.caption).foregroundStyle(Monokai.comment)
+                    .frame(width: 150, alignment: .leading)
+                TextField("ordinary spelling, e.g. cue brick", text: $soundsLike)
+                    .textFieldStyle(.roundedBorder)
+                Button("Use respelling") {
+                    let value = studio.defaultPhonemes(for: soundsLike)
+                    if !value.isEmpty { entry.ipa = value }
+                }
+                .disabled(soundsLike.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Text("Converts to editable IPA")
+                    .font(.caption2).foregroundStyle(Monokai.comment)
             }
             status
         }

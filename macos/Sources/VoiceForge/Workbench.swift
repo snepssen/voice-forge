@@ -39,27 +39,37 @@ struct Workbench: View {
     // MARK: toolbar
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItemGroup {
-            if let busy = studio.busy {
+        if let busy = studio.busy {
+            ToolbarItem(placement: .status) {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
                     Text(busy).font(.caption).foregroundStyle(Monokai.comment)
                 }
             }
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
             Button { Task { await studio.renderAll() } } label: { Label("Render", systemImage: "waveform") }
                 .disabled(studio.busy != nil || studio.script.isEmpty)
             Button { studio.play() } label: { Label("Play", systemImage: "play.fill") }
                 .disabled(studio.rendered.isEmpty)
             Button { studio.stop() } label: { Label("Stop", systemImage: "stop.fill") }
                 .disabled(studio.rendered.isEmpty)
-            Picker("", selection: $studio.appearance) {
+        }
+        // Give the native segmented control its own toolbar item and intrinsic
+        // width. A forced 110-point frame inside the transport group can be
+        // narrower than the macOS control, drawing over Stop's hit area.
+        ToolbarItem(placement: .primaryAction) {
+            Picker("Appearance", selection: $studio.appearance) {
                 ForEach(Appearance.allCases) { a in
                     Image(systemName: a == .system ? "circle.lefthalf.filled"
                           : a == .light ? "sun.max" : "moon").tag(a)
                 }
             }
-            .pickerStyle(.segmented).labelsHidden().frame(width: 110)
+            .pickerStyle(.segmented).labelsHidden()
+            .fixedSize(horizontal: true, vertical: false)
             .help("Follow the system, or pin light or dark")
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
             Button { studio.showingDictionary = true } label: {
                 Label("Dictionary", systemImage: "character.book.closed")
             }
@@ -81,7 +91,7 @@ struct Workbench: View {
                         .scrollContentBackground(.hidden)
                         .background(Monokai.inset, in: RoundedRectangle(cornerRadius: 6))
                         .frame(minHeight: 150)
-                    Text("A blank line starts a new paragraph. Each sentence becomes one call to the model — never more, never less.")
+                    Text("A blank line starts a paragraph; every sentence remains one model call. Put *asterisks* around words for phrase focus. Add [[beat:short]], [[beat]], or [[beat:long]] for an authored breath inside that same call.")
                         .font(.caption).foregroundStyle(Monokai.comment)
                         .fixedSize(horizontal: false, vertical: true)
                     Divider().overlay(Monokai.inset)
@@ -276,8 +286,72 @@ struct Workbench: View {
 
     private var controls: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) { pauses; scales; advanced; exportPanel }
+            VStack(alignment: .leading, spacing: 14) {
+                performance; pauses; scales; advanced; exportPanel
+            }
                 .padding(14)
+        }
+    }
+
+    private var performance: some View {
+        Panel(title: "Performance") {
+            if let sentence = studio.selectedSentence {
+                let key = sentence.expressionKey
+                let current = studio.expression(for: key)
+                Picker("Expression", selection: Binding(
+                    get: { studio.expression(for: key).preset },
+                    set: { preset in
+                        var value = studio.expression(for: key)
+                        value.preset = preset
+                        studio.setExpression(value, for: key)
+                    })) {
+                        ForEach(ExpressionPreset.allCases) { preset in
+                            Text(preset.name).tag(preset)
+                        }
+                    }
+                Dial(label: "Intensity", value: Binding(
+                    get: { studio.expression(for: key).intensity },
+                    set: { intensity in
+                        var value = studio.expression(for: key)
+                        value.intensity = intensity
+                        studio.setExpression(value, for: key)
+                    }), range: 0 ... 1, step: 0.01, format: "%.2f",
+                    note: current.preset.note)
+                    .disabled(current.preset == .neutral)
+                Dial(label: "Transition", value: Binding(
+                    get: { studio.expression(for: key).transitionSeconds },
+                    set: { seconds in
+                        var value = studio.expression(for: key)
+                        value.transitionSeconds = seconds
+                        studio.setExpression(value, for: key)
+                    }), range: 0 ... 1, step: 0.01, format: "%.2f s",
+                    note: "How gradually the tone changes at the start of this sentence.")
+                    .disabled(current.preset == .neutral)
+                HStack {
+                    Button("Apply & render this sentence") {
+                        Task { await studio.reroll(sentence.id) }
+                    }
+                    .disabled(studio.busy != nil)
+                    Spacer()
+                    Button("Clear all") { studio.clearExpressions() }
+                        .buttonStyle(.plain).foregroundStyle(Monokai.comment)
+                        .disabled(studio.expressions.isEmpty)
+                }
+                Text("Piper supplies pace and rhythmic variation; a light, linear tone transition follows. These are delivery directions, not synthetic acting: the source performance sets the emotional ceiling.")
+                    .font(.caption).foregroundStyle(Monokai.comment)
+                    .fixedSize(horizontal: false, vertical: true)
+                if sentence.expression != current {
+                    Text("This assignment has not been rendered yet. Apply & render it to hear the change.")
+                        .font(.caption).foregroundStyle(Monokai.orange)
+                }
+            } else {
+                Text("Render, then select a sentence in the take to give it an expression. Each sentence can move smoothly from the state before it.")
+                    .font(.caption).foregroundStyle(Monokai.comment)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !studio.expressions.isEmpty {
+                    Button("Clear all expressions") { studio.clearExpressions() }
+                }
+            }
         }
     }
 
@@ -477,6 +551,17 @@ private struct SentenceRow: View {
                     .foregroundStyle(selected ? Monokai.purple : Monokai.fg)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
+                if r.expression.preset != .neutral {
+                    Text(r.expression.preset.name)
+                        .font(.caption2).foregroundStyle(Monokai.orange)
+                }
+                let cues = PerformanceMarkup.cueCounts(r.text)
+                if cues.focus + cues.beats > 0 {
+                    Text([cues.focus > 0 ? "\(cues.focus) focus" : nil,
+                          cues.beats > 0 ? "\(cues.beats) beat" : nil]
+                        .compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption2).foregroundStyle(Monokai.yellow)
+                }
                 Text(String(format: "%.2fs", r.seconds))
                     .monospacedDigit().font(.caption).foregroundStyle(Monokai.comment)
             }
@@ -489,6 +574,7 @@ private struct SentenceRow: View {
                     Button("Play") { studio.playOne(r.id) }.controlSize(.small)
                     Button("Re-roll") { Task { await studio.reroll(r.id) } }
                         .controlSize(.small)
+                        .disabled(studio.busy != nil)
                         .help("Render this sentence again. The model is stochastic, so it is a different take.")
                 }
                 .font(.caption).monospacedDigit().foregroundStyle(Monokai.comment)

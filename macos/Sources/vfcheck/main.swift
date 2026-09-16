@@ -50,6 +50,14 @@ do {
     c.expect(!s.sentences[0].endsParagraph, "the first does not")
     c.equal(s.sentences[2].clauseBreaks, 2, "clause breaks are counted")
     c.equal(s.wordCount, 8, "words are counted")
+    c.equal(s.sentences[0].expressionKey, "d4a88e5d:0",
+            "a sentence has the same cross-platform expression key")
+    c.equal(Script.parse("Earlier. One two.").sentences[1].expressionKey,
+            s.sentences[0].expressionKey,
+            "and inserting an earlier sentence does not move its performance")
+    let repeated = Script.parse("Again. Again.")
+    c.expect(repeated.sentences[0].expressionKey != repeated.sentences[1].expressionKey,
+             "repeated copy can still carry two different performances")
 
     // The one case that bites in written-for-speech copy.
     let money = Script.parse("It costs $4.99 today. That is all.")
@@ -141,6 +149,77 @@ do {
     c.equal(Script.spokenCurrency("costs money"), "costs money", "text with no symbol is untouched")
     c.equal(Script.spokenCurrency("$3.14159"), "3.14159 dollars",
             "more than two decimal places is not a minor unit")
+}
+
+// ------------------------------------------------------ performance markup
+c.suite("performance markup")
+do {
+    c.equal(PerformanceMarkup.parse("Say *this* now."), [
+        .text("Say ", focused: false), .text("this", focused: true),
+        .text(" now.", focused: false),
+    ], "asterisks mark one focused run without becoming spoken text")
+    c.equal(PerformanceMarkup.parse("Wait [[beat:short]] then [[BEAT]] go [[beat:long]]."), [
+        .text("Wait ", focused: false), .beat(.short),
+        .text(" then ", focused: false), .beat(.medium),
+        .text(" go ", focused: false), .beat(.long), .text(".", focused: false),
+    ], "named beats parse case-insensitively")
+    c.equal(PerformanceMarkup.spokenText("I *really* mean it [[beat]] now."),
+            "I really mean it now.", "directions are absent from the spoken copy")
+    c.equal(PerformanceMarkup.wordCount("I *really* mean it [[beat]] now."), 5,
+            "directions do not inflate the word count")
+    c.equal(PerformanceMarkup.parse("A lone * stays literal."),
+            [.text("A lone * stays literal.", focused: false)],
+            "an unmatched focus mark never eats the rest of a sentence")
+    c.equal(PerformanceMarkup.spokenText("Two * three * four."), "Two * three * four.",
+            "spaced multiplication-style stars are not mistaken for focus")
+    let counts = PerformanceMarkup.cueCounts("*One* [[beat]] and *two* [[beat:long]].")
+    c.equal(counts.focus, 2, "focus runs are counted for the take")
+    c.equal(counts.beats, 2, "as are beats")
+}
+
+// --------------------------------------------------------------- expression
+c.suite("expression")
+do {
+    let base = SynthesisSettings()
+    let none = SentenceExpression(preset: .angry, intensity: 0)
+    c.equal(none.applying(to: base), base, "zero intensity leaves Piper neutral")
+    c.expect(SentenceExpression(preset: .happy).applying(to: base).lengthScale < base.lengthScale,
+             "happy starts from a quicker delivery")
+    c.expect(SentenceExpression(preset: .intimate).applying(to: base).lengthScale > base.lengthScale,
+             "intimate starts from a slower delivery")
+
+    let dry: [Float] = [0, 0.25, -0.25, 0.5, -0.5, 0]
+    c.equal(ExpressionDSP.process(dry, from: .init(), to: .init(),
+                                  transitionSeconds: 0.2, sampleRate: 22_050), dry,
+            "neutral tone is bit-for-bit transparent")
+    let shaped = ExpressionDSP.process(dry, from: .init(),
+                                       to: SentenceExpression(preset: .angry).tone,
+                                       transitionSeconds: 0.2, sampleRate: 22_050)
+    c.expect(!shaped.isEmpty, "expression treatment produces audio")
+    c.expect(shaped.allSatisfy(\.isFinite), "and produces finite samples")
+    c.close(Double(shaped[0]), Double(dry[0]), 0.000_001,
+            "an expression transition begins in the preceding state")
+    let sustained = (0 ..< 4_000).map { Float(sin(Double($0) * 0.1) * 0.2) }
+    let safe = ExpressionDSP.process(sustained, from: .init(),
+                                     to: SentenceExpression(preset: .happy).tone,
+                                     transitionSeconds: 0, sampleRate: 22_050)
+    c.equal(safe.count, sustained.count, "linear tone shaping cannot warp the spoken contour")
+    c.expect((safe.map { abs($0) }.max() ?? 0) < 0.5, "the treatment has safe headroom")
+    for rate in [22_050.0, 48_000.0] {
+        for preset in ExpressionPreset.allCases {
+            let input: [Float] = (0 ..< 4_096).map { i in
+                Float(0.35 * sin(Double(i) * 0.13) + 0.2 * sin(Double(i) * 1.37))
+            }
+            let tone = SentenceExpression(preset: preset).tone
+            let full = ExpressionDSP.process(input, from: .init(), to: tone,
+                                             transitionSeconds: 0.02, sampleRate: rate)
+            let half = ExpressionDSP.process(input.map { $0 * 0.5 }, from: .init(), to: tone,
+                                             transitionSeconds: 0.02, sampleRate: rate)
+            c.expect(full.count == input.count && zip(full, half).allSatisfy {
+                $0.isFinite && abs($0 * 0.5 - $1) < 0.000_001
+            }, "\(preset) at \(rate) preserves length and amplitude linearity")
+        }
+    }
 }
 
 // ------------------------------------------------------------------ settings

@@ -11,6 +11,7 @@ import { defaultSettings } from "../core/settings.js";
 import { parseScript } from "../core/script.js";
 import { integratedLUFS, truePeakDBTP } from "../core/loudness.js";
 import { writeWav, resample } from "./../main/audio.js";
+import { expressionPresets, type SentenceExpression } from "../core/expression.js";
 import { writeFileSync, readFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -37,15 +38,69 @@ console.log(`  abbreviations: ${oneLine ? "one sentence ✓" : "SPLIT ✗"}`);
 
 const dictionary = [
   { id: "1", word: "Snepssen", ipa: "snˈuːpsɔːn", scope: "global" as const, enabled: true },
-  { id: "2", word: "Kubrick",  ipa: "kjˈuːbɹɪk",  scope: "global" as const, enabled: true },
+  { id: "2", word: "Kubrick",  ipa: await engine.defaultPhonemes("cue brick"), scope: "global" as const, enabled: true },
 ];
 
 const t0 = Date.now();
-const rendered = await engine.render(script, settings, dictionary);
+const expressions: Record<string, SentenceExpression> = {
+  [script.sentences[0]!.expressionKey]: { preset: "happy", intensity: 0.75, transitionSeconds: 0.18 },
+  [script.sentences[1]!.expressionKey]: { preset: "intimate", intensity: 0.65, transitionSeconds: 0.24 },
+};
+const rendered = await engine.render(script, settings, dictionary, expressions);
 const audio = engine.assemble(rendered);
 const elapsed = (Date.now() - t0) / 1000;
 const secs = audio.length / engine.sampleRate;
 console.log(`  ${secs.toFixed(2)}s of audio in ${elapsed.toFixed(2)}s (${(secs / elapsed).toFixed(1)}x realtime)`);
+const expressionFine = rendered[0]?.expression.preset === "happy"
+  && rendered[1]?.expression.preset === "intimate"
+  && rendered.every(r => r.samples.every(Number.isFinite));
+console.log(`  expression path: ${expressionFine ? "happy → intimate ✓" : "FAILED ✗"}`);
+
+// Expression processing must stay clean. The neutral Piper model cannot turn
+// into an acted voice through nonlinear effects, so this checks safe delivery
+// variation rather than rewarding distortion or aggressive pitch shifting.
+const expressionLine = "You really thought I was going to make this easy for you?";
+const expressionScript = parseScript(expressionPresets.map(() => expressionLine).join(" "));
+const expressionAudit: Record<string, SentenceExpression> = {};
+for (let i = 0; i < expressionScript.sentences.length; i++) {
+  expressionAudit[expressionScript.sentences[i]!.expressionKey] = {
+    preset: expressionPresets[i]!, intensity: 1, transitionSeconds: 0.08,
+  };
+}
+const treatments = await engine.render(expressionScript, { ...settings, sentenceGap: 0.35 }, [], expressionAudit);
+const treatmentDurations = treatments.map(r => r.seconds);
+const treatmentMetrics = treatments.map(r => {
+  let energy = 0, edge = 0;
+  for (let i = 0; i < r.samples.length; i++) {
+    energy += r.samples[i]! * r.samples[i]!;
+    if (i > 0) { const d = r.samples[i]! - r.samples[i - 1]!; edge += d * d; }
+  }
+  const rms = Math.sqrt(energy / Math.max(1, r.samples.length));
+  const edgeRMS = Math.sqrt(edge / Math.max(1, r.samples.length - 1));
+  return { rmsDB: 20 * Math.log10(Math.max(rms, 1e-12)), brightness: edgeRMS / Math.max(rms, 1e-12) };
+});
+const durationSpread = Math.max(...treatmentDurations) / Math.min(...treatmentDurations) - 1;
+const treatmentFine = treatments.length === expressionPresets.length
+  && treatments.every(r => r.samples.every(Number.isFinite) && r.peakDBFS < -1);
+console.log(`  expression signal checks: ${treatmentFine ? "finite, below sample ceiling ✓" : "FAILED ✗"}`
+  + ` (${expressionPresets.map((p, i) => `${p} ${treatmentDurations[i]!.toFixed(2)}s`).join(", ")}; ${Math.round(durationSpread * 100)}% timing)`);
+console.log(`  treatment metrics: ${expressionPresets.map((p, i) =>
+  `${p} ${treatmentMetrics[i]!.rmsDB.toFixed(1)}dB/${treatmentMetrics[i]!.brightness.toFixed(3)} edge/${treatments[i]!.peakDBFS.toFixed(1)} peak`).join(", ")}`);
+const treatmentPath = join(tmpdir(), "voice-forge-expression-audition.wav");
+writeFileSync(treatmentPath, writeWav(engine.assemble(treatments), engine.sampleRate, 16));
+console.log(`  expression audition: ${treatmentPath}`);
+
+// Phrase directions stay inside one model call. A long beat should buy real
+// duration from Piper rather than being decorative notation or spliced audio.
+const directedText = "Wait *right* there [[beat:long]].";
+const directedIPA = await engine.phonemesFor(directedText, settings);
+const deterministic = { ...settings, noiseW: 0 };
+const plainFocus = await engine.renderSentence("Wait right there.", deterministic);
+const directed = await engine.renderSentence(directedText, deterministic);
+const performanceFine = directedIPA.phonemes.includes("⟨long beat⟩")
+  && !directedIPA.phonemes.includes("*") && directed.length > plainFocus.length;
+console.log(`  phrase direction: focus + long beat ${performanceFine ? "✓" : "FAILED ✗"}`
+  + ` (${(plainFocus.length / engine.sampleRate).toFixed(2)}s → ${(directed.length / engine.sampleRate).toFixed(2)}s)`);
 
 // Did the dictionary land?
 for (const e of dictionary) {
@@ -79,6 +134,7 @@ const d = readFileSync(path);
 const ok = d.subarray(0, 4).toString() === "RIFF" && d.subarray(8, 12).toString() === "WAVE";
 const declaredRate = d.readUInt32LE(24), bits = d.readUInt16LE(34), dataBytes = d.readUInt32LE(40);
 console.log(`  file: ${ok ? "RIFF/WAVE" : "NOT A WAV"} | ${declaredRate} Hz | ${bits}-bit | ${(dataBytes / (declaredRate * 2)).toFixed(2)}s`);
-const fine = ok && declaredRate === rate && bits === 16 && dataBytes === out.length * 2;
+const fine = expressionFine && treatmentFine && performanceFine && ok && declaredRate === rate
+  && bits === 16 && dataBytes === out.length * 2;
 console.log(fine ? "\nend to end: OK" : "\nend to end: FAILED");
 process.exit(fine ? 0 : 1);

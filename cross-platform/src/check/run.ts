@@ -14,6 +14,8 @@ import { defaultSettings, isWithinRanges, ranges } from "../core/settings.js";
 import { paceNote, noteFor } from "../core/voiceNotes.js";
 import { integratedLUFS, truePeakDBTP, loudnessTargets } from "../core/loudness.js";
 import * as P from "../core/pronunciation.js";
+import * as E from "../core/expression.js";
+import * as M from "../core/performanceMarkup.js";
 
 let passed = 0, failed = 0, suite = "";
 const setSuite = (s: string) => { suite = s; };
@@ -41,6 +43,14 @@ setSuite("script");
   expect(!s.sentences[0]!.endsParagraph, "the first does not");
   equal(s.sentences[2]!.clauseBreaks, 2, "clause breaks are counted");
   equal(S.wordCount(s), 8, "words are counted");
+  equal(s.sentences[0]!.expressionKey, "d4a88e5d:0",
+        "a sentence has the same cross-platform expression key");
+  equal(S.parseScript("Earlier. One two.").sentences[1]!.expressionKey,
+        s.sentences[0]!.expressionKey,
+        "and inserting an earlier sentence does not move its performance");
+  const repeated = S.parseScript("Again. Again.");
+  expect(repeated.sentences[0]!.expressionKey !== repeated.sentences[1]!.expressionKey,
+         "repeated copy can still carry two different performances");
 
   equal(S.parseScript("It costs $4.99 today. That is all.").sentences.length, 2,
         "a decimal point does not end a sentence");
@@ -101,6 +111,74 @@ setSuite("script");
         "a symbol not followed by a digit is left alone");
   equal(S.spokenCurrency("costs money"), "costs money", "text with no symbol is untouched");
   equal(S.spokenCurrency("$3.14159"), "3.14159 dollars", "more than two decimals is not a minor unit");
+}
+
+// ------------------------------------------------------ performance markup
+setSuite("performance markup");
+{
+  equal(M.parsePerformanceMarkup("Say *this* now."), [
+    { kind: "text", text: "Say ", focused: false },
+    { kind: "text", text: "this", focused: true },
+    { kind: "text", text: " now.", focused: false },
+  ], "asterisks mark one focused run without becoming spoken text");
+  equal(M.parsePerformanceMarkup("Wait [[beat:short]] then [[BEAT]] go [[beat:long]]."), [
+    { kind: "text", text: "Wait ", focused: false }, { kind: "beat", beat: "short" },
+    { kind: "text", text: " then ", focused: false }, { kind: "beat", beat: "medium" },
+    { kind: "text", text: " go ", focused: false }, { kind: "beat", beat: "long" },
+    { kind: "text", text: ".", focused: false },
+  ], "named beats parse case-insensitively");
+  equal(M.spokenText("I *really* mean it [[beat]] now."), "I really mean it now.",
+        "directions are absent from the spoken copy");
+  equal(M.performanceWordCount("I *really* mean it [[beat]] now."), 5,
+        "directions do not inflate the word count");
+  equal(M.parsePerformanceMarkup("A lone * stays literal."),
+        [{ kind: "text", text: "A lone * stays literal.", focused: false }],
+        "an unmatched focus mark never eats the rest of a sentence");
+  equal(M.spokenText("Two * three * four."), "Two * three * four.",
+        "spaced multiplication-style stars are not mistaken for focus");
+  equal(M.cueCounts("*One* [[beat]] and *two* [[beat:long]]."), { focus: 2, beats: 2 },
+        "focus runs and beats are counted for the take");
+}
+
+// --------------------------------------------------------------- expression
+setSuite("expression");
+{
+  const base = defaultSettings();
+  const none: E.SentenceExpression = { preset: "angry", intensity: 0, transitionSeconds: 0.18 };
+  equal(E.expressionSettings(base, none), base, "zero intensity leaves Piper neutral");
+  expect(E.expressionSettings(base, { ...none, preset: "happy", intensity: 1 }).lengthScale < base.lengthScale,
+         "happy starts from a quicker delivery");
+  expect(E.expressionSettings(base, { ...none, preset: "intimate", intensity: 1 }).lengthScale > base.lengthScale,
+         "intimate starts from a slower delivery");
+
+  const dry = Float32Array.from([0, 0.25, -0.25, 0.5, -0.5, 0]);
+  const neutral: E.ExpressionTone = {
+    lowShelfDB: 0, presenceDB: 0, highShelfDB: 0, outputDB: 0,
+  };
+  equal([...E.applyExpression(dry, neutral, neutral, 0.2, 22050)], [...dry],
+        "neutral tone is bit-for-bit transparent");
+  const shaped = E.applyExpression(dry, neutral,
+    E.toneFor({ preset: "angry", intensity: 1, transitionSeconds: 0.2 }), 0.2, 22050);
+  expect(shaped.length > 0, "expression treatment produces audio");
+  expect([...shaped].every(Number.isFinite), "and produces finite samples");
+  close(shaped[0]!, dry[0]!, 0.000001, "an expression transition begins in the preceding state");
+  const sustained = Float32Array.from({ length: 4000 }, (_, i) => Math.sin(i * 0.1) * 0.2);
+  const safe = E.applyExpression(sustained, neutral,
+    E.toneFor({ ...none, preset: "happy", intensity: 1 }), 0, 22050);
+  equal(safe.length, sustained.length, "linear tone shaping cannot warp the spoken contour");
+  expect(Math.max(...safe.map(Math.abs)) < 0.5, "the treatment has safe headroom");
+  // A sample peak below zero did not detect the old waveshaper distortion.
+  // Linear processing must give the same result before/after scaling input.
+  for (const rate of [22050, 48000]) for (const preset of E.expressionPresets) {
+    const tone = E.toneFor({ preset, intensity: 1, transitionSeconds: 0.02 });
+    const input = Float32Array.from({ length: 4096 }, (_, i) =>
+      0.35 * Math.sin(i * 0.13) + 0.2 * Math.sin(i * 1.37));
+    const full = E.applyExpression(input, neutral, tone, 0.02, rate);
+    const half = E.applyExpression(input.map(v => v * 0.5), neutral, tone, 0.02, rate);
+    expect(full.length === input.length && full.every((v, i) =>
+      Number.isFinite(v) && Math.abs(v * 0.5 - half[i]!) < 1e-6),
+      `${preset} at ${rate} preserves length and amplitude linearity`);
+  }
 }
 
 // ----------------------------------------------------------------- settings

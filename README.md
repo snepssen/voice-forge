@@ -20,6 +20,21 @@ measurement taken from one voice does not describe another, so *Measure this
 voice* is a button rather than a printed constant, and the app will not print one
 voice's figure under another's name.
 
+Performance can be directed at two levels. A rendered sentence can carry a
+Happy, Playful, Intimate, Flirty or Angry expression with its own intensity and
+sentence pace and a smooth tonal transition. The shipped Piper voice is not style-conditioned,
+so these are clean delivery directions rather than synthetic emotional acting. Inside the sentence, `*focused words*` receive their
+own stress and room, while `[[beat:short]]`, `[[beat]]` and `[[beat:long]]` add
+authored breaths to the same model call. Pronunciations can be edited as IPA or
+seeded from an ordinary “sounds like” respelling and inspected before use.
+
+For controlled listening comparisons, run `npm run audition` from `cross-platform`.
+It creates a local HTML page with playable WAVs and a JSON measurement manifest.
+EQ comparisons reuse the exact same recording, with loudness matched using gain
+only. Separate phrase-direction comparisons disable both Piper noise scales and
+verify a repeatable baseline. These are experiments for listening evaluation;
+passing signal checks does not establish naturalness or emotional expression.
+
 ## Two implementations
 
 | | | |
@@ -31,7 +46,7 @@ The interface is drawn in HTML on the cross-platform side rather than handed to
 GTK or Qt, so it looks the same everywhere instead of being three apps that
 happen to share a name.
 
-**The two cores are held to each other.** 18 parity checks compare phonemes
+**The two cores are held to each other.** 20 parity checks compare phonemes
 byte-for-byte and durations to the millisecond — 1.637 s against 1.637 s — with
 the duration predictor made deterministic so the comparison means something. If
 they ever disagree, one of the two suites goes red.

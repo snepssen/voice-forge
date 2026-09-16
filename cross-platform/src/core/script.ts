@@ -12,8 +12,12 @@
  * are the same checks — that is the point of porting them alongside.
  */
 
+import { performanceWordCount } from "./performanceMarkup.js";
+
 export interface Sentence {
   id: number;
+  /** Stable across edits elsewhere in the script. */
+  expressionKey: string;
   text: string;
   /** Which paragraph it belongs to. A paragraph break is a longer pause. */
   paragraph: number;
@@ -112,14 +116,19 @@ export function splitSentences(text: string): string[] {
 export function parseScript(text: string): Script {
   const sentences: Sentence[] = [];
   let id = 0;
+  const occurrences = new Map<string, number>();
   const paragraphs = text.split("\n\n").map(p => p.trim()).filter(Boolean);
 
   paragraphs.forEach((paragraph, p) => {
     const pieces = splitSentences(paragraph);
     pieces.forEach((piece, i) => {
       const last = piece.at(-1) ?? "";
+      const fingerprint = expressionFingerprint(piece);
+      const occurrence = occurrences.get(fingerprint) ?? 0;
+      occurrences.set(fingerprint, occurrence + 1);
       sentences.push({
         id: id++,
+        expressionKey: `${fingerprint}:${occurrence}`,
         text: piece,
         paragraph: p,
         endsParagraph: i === pieces.length - 1,
@@ -131,8 +140,18 @@ export function parseScript(text: string): Script {
   return { sentences };
 }
 
+/** FNV-1a, matched byte-for-byte by the Swift core. This is local identity,
+ * not a security boundary. */
+function expressionFingerprint(text: string): string {
+  let hash = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(text.normalize("NFC"))) {
+    hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
 export const wordCount = (s: Script): number =>
-  s.sentences.reduce((n, x) => n + x.text.split(/\s+/).filter(Boolean).length, 0);
+  s.sentences.reduce((n, x) => n + performanceWordCount(x.text), 0);
 
 export const paragraphCount = (s: Script): number =>
   s.sentences.length ? Math.max(...s.sentences.map(x => x.paragraph)) + 1 : 0;

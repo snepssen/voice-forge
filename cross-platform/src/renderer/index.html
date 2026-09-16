@@ -46,7 +46,7 @@
     <section class="panel">
       <h2>Script <span class="trailing" id="scriptSummary"></span></h2>
       <textarea id="script" spellcheck="false"></textarea>
-      <p class="note">A blank line starts a new paragraph. Each sentence becomes one call to the model — never more, never less.</p>
+      <p class="note">A blank line starts a paragraph; every sentence remains one model call. Put <code>*asterisks*</code> around words for phrase focus. Add <code>[[beat:short]]</code>, <code>[[beat]]</code>, or <code>[[beat:long]]</code> for an authored breath inside that same call.</p>
       <div class="divider"></div>
       <label class="check"><input type="checkbox" id="spokenCurrency"> Read currency the way it is said</label>
       <p class="note" id="currencyNote"></p>
@@ -63,6 +63,35 @@
   </div>
 
   <div id="right">
+    <section class="panel">
+      <h2>Performance <span class="trailing" id="expressionTarget"></span></h2>
+      <p class="note" id="expressionEmpty">Render, then select a sentence in the take to give it an expression.</p>
+      <div id="expressionControls" hidden>
+        <div class="dial"><div class="row"><span>Expression</span>
+          <select id="expressionPreset" class="push">
+            <option value="neutral">Neutral</option>
+            <option value="happy">Happy</option>
+            <option value="playful">Playful</option>
+            <option value="intimate">Intimate</option>
+            <option value="flirty">Flirty</option>
+            <option value="angry">Angry</option>
+          </select></div></div>
+        <div class="dial"><div class="row"><span>Intensity</span><span class="val" id="expressionIntensityVal"></span></div>
+          <input type="range" id="expressionIntensity" min="0" max="1" step="0.01">
+          <p class="note" id="expressionNote"></p></div>
+        <div class="dial"><div class="row"><span>Transition</span><span class="val" id="expressionTransitionVal"></span></div>
+          <input type="range" id="expressionTransition" min="0" max="1" step="0.01">
+          <p class="note">How gradually the tone changes at the start of this sentence.</p></div>
+        <div class="actions">
+          <button class="toolbtn accent" id="btnRenderSentence">Apply &amp; render this sentence</button>
+          <span class="grow"></span>
+          <button class="toolbtn" id="btnClearExpressions">Clear all</button>
+        </div>
+        <p class="note">Piper supplies pace and rhythmic variation; a light, linear tone transition follows. These are delivery directions, not synthetic acting: the source performance sets the emotional ceiling.</p>
+        <p class="note warn" id="expressionPending" hidden>This assignment has not been rendered yet. Apply &amp; render it to hear the change.</p>
+      </div>
+    </section>
+
     <section class="panel">
       <h2>Pauses</h2>
       <div id="pauseDials"></div>
@@ -125,7 +154,7 @@
     <header>
       <div>
         <h2>Pronunciation</h2>
-        <p class="note">What you type is handed straight to the model — it speaks IPA, so this is not a translation step.</p>
+        <p class="note">Edit the IPA directly, or type an ordinary “sounds like” respelling under an entry and convert it. The result stays visible and editable before it reaches the model.</p>
       </div>
       <button class="go" id="dictDone">Done</button>
     </header>

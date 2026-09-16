@@ -31,6 +31,8 @@ const phonemeCases: [string, string][] = [
   ["The room was quiet—and nobody moved.",  "ðə ɹˈuːm wʌz kwˈaɪət; ænd nˈoʊbɑːdi mˈuːvd"],
   ["mixed CaSe.",                           "mˈɪkst kˈɑː sˈiː"],
   ["It costs $4.99 today.",                 "ɪt kˈɔsts fˈɔːɹ dˈɑːlɚz nˈaɪnti nˈaɪn tədˈeɪ"],
+  ["Wait *right* there.",                   "wˈeɪt ɹˈaɪt ðˈɛɹ"],
+  ["Wait *right* there [[beat:long]].",     "wˈeɪt ɹˈaɪt ðˈɛɹ ⟨long beat⟩"],
 ];
 
 // The NORTH/FORCE vowel, one word at a time — the way the Swift numbers were
