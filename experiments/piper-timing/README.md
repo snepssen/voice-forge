@@ -524,3 +524,62 @@ contours before this control generalizes.
 python -m unittest discover -s experiments/piper-timing -p 'test_*probe.py' -v
 python experiments/piper-timing/onset_guard_probe.py /absolute/fixed-pitch-manifest.json /absolute/new-output-directory
 ```
+
+### Per-sound weighting, generalised off the fixture — 2026-09-16
+
+The whole-span stretch was rejected as "ssttoollee" and the vowel-only variant
+at the same magnitude was preferred. Both were hand-picked spans on one clip.
+`per_sound_audition.mjs` turns that distinction into a rule and runs it on four
+sentences: a phoneme class map decides how much of a direction each sound
+receives, so a request to hold a word reaches its vowels in full, its liquids
+about half, its unvoiced friction barely, and its stops not at all.
+
+The map lives in the app core, not in this directory —
+`cross-platform/src/core/phonology.ts` for the classes and
+`cross-platform/src/core/timingPlan.ts` for turning a word-level direction into
+one factor per token. Only the two ends of the susceptibility scale are settled
+by listening; the values between them are a starting ordering and are the first
+thing to retune. The app's own encoder now reports its token layout
+(`VoiceEngine.tokenLayout`), so the factor vector is built from the ids actually
+sent rather than from a reconstruction that could drift. Token ids are unchanged:
+the parity suite still reports 1.637 s against Swift's 1.637 s.
+
+An accent is the stressed nucleus held beyond the rest of its own word, plus
+1.5 dB of raised-cosine lift across the word. espeak writes the stress mark
+immediately before its syllable, so the nucleus is addressable without a
+syllabifier; one-syllable words espeak leaves unmarked fall back to their first
+vowel run. **No pitch is shifted.** The duration output also gives exact
+token-to-sample boundaries, so the lift is placed on the model's own alignment
+rather than on recogniser landmarks — the weakness that ran through the earlier
+pitch attempts.
+
+Checks that ran, per take:
+
+- A vector of ones reproduces the stock model with **max error 0.00e+0** across
+  all four sentences — bit-identical, not merely within tolerance.
+- `vf_base_frames` is unchanged by any direction, so the underlying duration
+  prediction never moved.
+- Every token outside the directed word keeps its exact predicted frame count.
+- Inside the directed word, every token whose class susceptibility is zero keeps
+  its exact frame count. This is the "ssttoollee" rejection asserted rather than
+  intended.
+- Output sample count is a whole number of frames, and no clip reaches the
+  sample ceiling.
+
+Measured additions, uniform versus per sound: 290/139 ms on "stole", 406/267 ms
+on "slowly", 151/104 ms on "really", 441/255 ms on "furious". The per-sound
+figure for "stole" lands near the +104 ms vowel extension that was preferred
+earlier, which is a consistency observation and not an approval.
+
+Artifacts are written to `experiments/piper-timing/auditions/` (gitignored).
+The page carries its audio inline so it plays away from that directory.
+
+```sh
+node experiments/piper-timing/per_sound_audition.mjs /absolute/epoch702-timing.onnx /absolute/out-dir
+```
+
+**Listening verdict: pending.** Passing every check above establishes that the
+intended tokens moved and no others did. It does not establish that a held vowel
+reads as delivery, that the weights between the two settled ends are right, or
+that an accent reads as emphasis rather than as length. The app is unchanged and
+the experimental graph still must not be installed in it.

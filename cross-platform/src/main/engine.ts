@@ -32,6 +32,22 @@ function promoteFocus(phonemes: string): string {
   return groups.join(" ");
 }
 
+/** One id as the model receives it, and what it is carrying. */
+export interface TokenSlot {
+  index: number;
+  /** The phoneme itself, or for a blank, the phoneme it trails. */
+  symbol: string;
+  kind: "symbol" | "blank" | "frame" | "trailing" | "clause" | "directed";
+  /** Which spoken word it belongs to; -1 between or outside words. */
+  word: number;
+}
+
+export interface TokenLayout {
+  ids: number[];
+  slots: TokenSlot[];
+  words: number;
+}
+
 export interface RenderedSentence {
   id: number;
   expressionKey: string;
@@ -222,28 +238,57 @@ export class VoiceEngine {
    * cold start where a breath belongs and was heard as a stutter.
    */
   phonemeIds(phonemes: string, settings: SynthesisSettings): number[] {
+    return this.tokenLayout(phonemes, settings).ids;
+  }
+
+  /**
+   * The same ids, with a parallel account of what each one is.
+   *
+   * Per-sound timing needs a factor for every token the model receives, in the
+   * model's order, so it needs to know which token is the vowel and which is
+   * the blank trailing it. Deriving both from one loop is the point: a separate
+   * reconstruction of this layout could drift from the ids actually sent, and
+   * a factor vector that has drifted holds the wrong sound.
+   */
+  tokenLayout(phonemes: string, settings: SynthesisSettings): TokenLayout {
     const map = this.config.phoneme_id_map;
     const pad = map["_"] ?? [];
-    const ids: number[] = [...(map["^"] ?? []), ...pad];
+    const ids: number[] = [];
+    const slots: TokenSlot[] = [];
+    let word = 0;
+
+    const push = (values: number[], slot: Omit<TokenSlot, "index">) => {
+      for (const id of values) { slots.push({ ...slot, index: ids.length }); ids.push(id); }
+    };
+
+    push(map["^"] ?? [], { symbol: "^", kind: "frame", word: -1 });
+    push(pad, { symbol: "^", kind: "blank", word: -1 });
+
     for (const ch of [...phonemes]) {
       const directedPads = ch === shortBeatMarker ? beatPads.short
         : ch === mediumBeatMarker ? beatPads.medium
         : ch === longBeatMarker ? beatPads.long
         : ch === focusBoundaryMarker ? 2 : 0;
       if (directedPads) {
-        for (let i = 0; i < directedPads; i++) ids.push(...pad);
+        for (let i = 0; i < directedPads; i++) push(pad, { symbol: ch, kind: "directed", word: -1 });
         continue;
       }
       const id = map[ch];
       if (!id) continue;
-      ids.push(...id, ...pad);
+      // A space separates words and belongs to neither, so the count advances
+      // after it rather than handing the gap to the word that just ended.
+      const spoken = ch !== " ";
+      push(id, { symbol: ch, kind: "symbol", word: spoken ? word : -1 });
+      push(pad, { symbol: ch, kind: "blank", word: spoken ? word : -1 });
       if (settings.clausePads > 0 && clauseMarks.has(ch)) {
-        for (let i = 0; i < settings.clausePads; i++) ids.push(...pad);
+        for (let i = 0; i < settings.clausePads; i++) push(pad, { symbol: ch, kind: "clause", word: -1 });
       }
+      if (!spoken) word++;
     }
-    for (let i = 0; i < settings.trailingPads; i++) ids.push(...pad);
-    ids.push(...(map["$"] ?? []));
-    return ids;
+
+    for (let i = 0; i < settings.trailingPads; i++) push(pad, { symbol: "$", kind: "trailing", word: -1 });
+    push(map["$"] ?? [], { symbol: "$", kind: "frame", word: -1 });
+    return { ids, slots, words: word + 1 };
   }
 
   /** One sentence, one inference call. Never less, never more. */

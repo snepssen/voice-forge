@@ -16,6 +16,9 @@ import { integratedLUFS, truePeakDBTP, loudnessTargets } from "../core/loudness.
 import * as P from "../core/pronunciation.js";
 import * as E from "../core/expression.js";
 import * as M from "../core/performanceMarkup.js";
+import * as PH from "../core/phonology.js";
+import * as T from "../core/timingPlan.js";
+import type { TokenLayout, TokenSlot } from "../main/engine.js";
 
 let passed = 0, failed = 0, suite = "";
 const setSuite = (s: string) => { suite = s; };
@@ -179,6 +182,107 @@ setSuite("expression");
       Number.isFinite(v) && Math.abs(v * 0.5 - half[i]!) < 1e-6),
       `${preset} at ${rate} preserves length and amplitude linearity`);
   }
+}
+
+// ---------------------------------------------------------------- phonology
+setSuite("phonology");
+{
+  equal(PH.phonemeClass("oʊ"[0]!), "vowel", "a diphthong's first half is a vowel");
+  equal(PH.phonemeClass("ʊ"), "vowel", "and so is its second");
+  equal(PH.phonemeClass("ː"), "vowelExtension", "the length mark is pure duration");
+  equal(PH.phonemeClass("l"), "sonorant", "a liquid holds");
+  equal(PH.phonemeClass("z"), "voicedFricative", "voiced friction holds less well");
+  equal(PH.phonemeClass("s"), "voicelessFricative", "a hiss barely at all");
+  equal(PH.phonemeClass("t"), "plosive", "and a stop not at all");
+  equal(PH.phonemeClass("ˈ"), "marker", "stress is a mark, not a sound");
+  equal(PH.phonemeClass(" "), "boundary", "an unlisted symbol is never stretched");
+  equal(PH.phonemeClass(" "), "boundary", "nor is one nobody anticipated");
+  // The rejection this whole class map exists to encode.
+  equal(PH.susceptibility.plosive, 0, "a plosive can never be held");
+  expect(PH.susceptibility.vowel > PH.susceptibility.sonorant
+    && PH.susceptibility.sonorant > PH.susceptibility.voicedFricative
+    && PH.susceptibility.voicedFricative > PH.susceptibility.voicelessFricative
+    && PH.susceptibility.voicelessFricative > PH.susceptibility.plosive,
+    "and the order runs from the vowel down to the stop");
+  for (const c of PH.phonemeClasses) {
+    expect(PH.susceptibility[c] >= 0 && PH.susceptibility[c] <= 1,
+           `${c} takes a sensible share of a stretch`);
+  }
+}
+
+// -------------------------------------------------------------- timing plan
+setSuite("timing plan");
+{
+  // The engine's layout, by hand, so this suite still never loads a model:
+  // every symbol is followed by the blank that carries its release.
+  const layout = (phonemes: string): TokenLayout => {
+    const slots: TokenSlot[] = [];
+    let word = 0, index = 0;
+    const push = (symbol: string, kind: TokenSlot["kind"], w: number) =>
+      slots.push({ index: index++, symbol, kind, word: w });
+    push("^", "frame", -1); push("^", "blank", -1);
+    for (const ch of [...phonemes]) {
+      const spoken = ch !== " ";
+      push(ch, "symbol", spoken ? word : -1);
+      push(ch, "blank", spoken ? word : -1);
+      if (!spoken) word++;
+    }
+    push("$", "frame", -1);
+    return { ids: slots.map(() => 0), slots, words: word + 1 };
+  };
+
+  const stole = layout("stˈoʊl");
+  equal(T.wordPhonemes(stole, 0), "stˈoʊl", "a word reads back as its own IPA");
+  equal(T.nucleus(stole, 0).filter(s => s.kind === "symbol").map(s => s.symbol).join(""),
+        "oʊ", "an accent lands on the vowel after the stress mark");
+  equal(T.nucleus(layout("juː"), 0).filter(s => s.kind === "symbol").map(s => s.symbol).join(""),
+        "uː", "an unmarked one-syllable word still has a nucleus");
+  equal(T.nucleus(layout("stl"), 0), [], "a word with no vowel has none to find");
+
+  const held = T.durationFactors(stole, [{ word: 0, stretch: 2, accent: 0, accentDB: 0 }]);
+  const at = (symbol: string, kind: TokenSlot["kind"] = "symbol") =>
+    held[stole.slots.find(s => s.symbol === symbol && s.kind === kind)!.index]!;
+  close(at("s"), 1.12, 1e-6, "a held word barely moves its hiss");
+  equal(at("t"), 1, "and does not move its stop at all");
+  equal(at("t", "blank"), 1, "nor the closure the stop trails");
+  equal(at("o"), 2, "the vowel takes the whole direction");
+  equal(at("o", "blank"), 2, "and so does the blank carrying its release");
+  close(at("l"), 1.55, 1e-6, "the liquid takes rather more than half");
+  equal(held[0]!, 1, "nothing outside the word is touched");
+  equal(held[held.length - 1]!, 1, "at either end");
+
+  // The rejected "ssttoollee": a uniform stretch would move every one of these.
+  const uniform = [...held].filter(v => v !== 1).length;
+  equal(uniform, 8, "only the sounds that can be held are held");
+
+  const accented = T.durationFactors(stole, [{ word: 0, stretch: 1, accent: 0.5, accentDB: 0 }]);
+  expect(accented[stole.slots.find(s => s.symbol === "o")!.index]! > 1
+    && accented[stole.slots.find(s => s.symbol === "l")!.index]! === 1,
+    "an accent alone moves the nucleus and nothing else in the word");
+
+  const two = layout("juː stˈoʊl");
+  const one = T.durationFactors(two, [{ word: 1, stretch: 2, accent: 0, accentDB: 0 }]);
+  expect(T.wordSlots(two, 0).every(s => one[s.index] === 1),
+         "directing one word leaves its neighbour exactly alone");
+
+  for (const stretch of [0.25, 1, 4]) {
+    const extreme = T.durationFactors(stole, [{ word: 0, stretch, accent: 3, accentDB: 0 }]);
+    expect([...extreme].every(v => v >= T.factorRange.min && v <= T.factorRange.max),
+           `a stretch of ${stretch} still lands inside the graph's range`);
+  }
+
+  equal(T.durationFactors(stole, []), new Float32Array(stole.ids.length).fill(1),
+        "no direction is a vector of ones, which the model must render unchanged");
+
+  // Alignment comes from the model's own reported frames, not from a guess.
+  equal(T.sampleBounds([2, 3, 1], 256), [0, 512, 1280, 1536], "token bounds follow the frames");
+  close(T.addedSeconds([2, 3], [2, 5], 256, 22050), 0.0232, 1e-4, "added time is reported, not assumed");
+
+  const gain = T.accentEnvelope(stole, [{ word: 0, stretch: 1, accent: 0, accentDB: 2 }],
+                                new Array(stole.ids.length).fill(2), 1536, 256);
+  expect(gain.every(v => v >= 1 && v <= Math.pow(10, 2 / 20) + 1e-6),
+         "an accent lift stays within the dB it was asked for");
+  expect(gain[0] === 1, "and starts from unity rather than stepping");
 }
 
 // ----------------------------------------------------------------- settings
