@@ -74,8 +74,8 @@ actual duration changes, and output levels. It verifies the original model's
 hash again after synthesis.
 
 Results from this run are in
-`/private/tmp/voice-forge-timing.ShqWmb/listening-word-spans` (temporary files).
-The modified model is `/private/tmp/voice-forge-timing.ShqWmb/epoch702-timing.onnx`.
+`/Volumes/Archive/piper-data/timing-experiment/listening-word-spans`.
+The modified model is `/Volumes/Archive/piper-data/timing-experiment/epoch702-timing.onnx`.
 
 **Listener verdict: pacing is good, but the sound is glitchy.** The 2.5 factor is deliberately pronounced
 for discrimination, not a recommended natural-emphasis preset. Neither exact
@@ -97,7 +97,7 @@ All six clips are loudness-matched. Acoustic noise is unseeded, with one draw
 per clip; repeated perceptual comparisons would be needed for robust results.
 
 The initial diagnostic files are in
-`/private/tmp/voice-forge-timing.ShqWmb/texture-check`. All four zero-noise parity
+`/Volumes/Archive/piper-data/timing-experiment/texture-check`. All four zero-noise parity
 cases still pass exactly. The user reports that restoring acoustic noise
 removed the glitchiness, but “stole” sounded like “ssttoollee”: whole-word
 stretching, not natural emphasis. This is listening evidence for this clip,
@@ -115,7 +115,7 @@ not proof that consonant waveforms are unchanged.
 
 The measured additions are 70 ms and 104 ms, versus 430 ms for the rejected
 whole-word stretch. Results are in
-`/private/tmp/voice-forge-timing.ShqWmb/vowel-check`. Neutral waveform parity
+`/Volumes/Archive/piper-data/timing-experiment/vowel-check`. Neutral waveform parity
 still passes all four cases, and audio length follows the changed alignment
 exactly. The user prefers the stronger (104 ms) vowel extension for dramatic
 delivery; the gentler version is almost unchanged. This establishes a preferred
@@ -154,7 +154,7 @@ A known-sine test checks static pitch shift and that moving peaks fall in the
 intended vowel intervals. It caught and corrected a scheduling error where
 the second rise landed late. These calibration checks do not measure the
 speech's actual F0 contour. The aligned candidate is in
-`/private/tmp/voice-forge-timing.ShqWmb/pitch-contour-aligned`; the earlier
+`/Volumes/Archive/piper-data/timing-experiment/pitch-contour-aligned`; the earlier
 `pitch-contour` folder is superseded. The user found this clean but barely
 different; it is not an approved expressive-delivery result.
 
@@ -191,7 +191,7 @@ The report tool additionally requires `praat-parselmouth` (tested with 0.4.7),
 installed only in the temporary experiment environment. The optional regression
 checks require enough paired voiced frames, a lift in both target regions,
 and lower pitch offsets between them; they do not award listening approval.
-Current files: `/private/tmp/voice-forge-timing.ShqWmb/pitch-contour-voiced`.
+Current files: `/Volumes/Archive/piper-data/timing-experiment/pitch-contour-voiced`.
 The recording remains 43008 samples, with samples outside the target region
 unchanged. **Listener verdict: rejected.** The user hears an oscillating wave,
 “I didn't say you StOoOlEiT”, rather than dramatic speech. The app remains
@@ -239,7 +239,7 @@ errors with vocal fry. Take 3 shows the widest measured range and longest
 activity span; take 2 is shortest. All three remain separate references;
 the user selected **Take 3** as the first transfer target.
 
-Artifacts: `/private/tmp/voice-forge-timing.ShqWmb/reference-s2-r1`.
+Artifacts: `/Volumes/Archive/piper-data/timing-experiment/reference-s2-r1`.
 Each excerpt is verified sample-identical to its corresponding source section.
 Do not proportionally stretch a whole reference pitch track onto the synthetic
 phrase or trust model token times as acoustic word alignment.
@@ -262,7 +262,7 @@ steadier offsets inside words rather than copying every pitch-tracker wiggle,
 and uses the same Rubber Band processor to avoid confounding a renderer change.
 
 The first audition is in
-`/private/tmp/voice-forge-timing.ShqWmb/take-3-register-audition`.
+`/Volumes/Archive/piper-data/timing-experiment/take-3-register-audition`.
 The original synthetic clip remains 43008 samples; its timing, including the
 preferred vowel extension, is retained. This does **not** yet reproduce Take
 3's longer “you”, internal pause, full contour, loudness, or breathiness.
@@ -298,9 +298,9 @@ measurements in its approximate word regions show lower “you” (~77 Hz), high
 high “you” / low “stole”, so direction is now derived from reference data rather
 than asserted as a fixed high/low/high pattern.
 
-R7 measurement artifacts: `/private/tmp/voice-forge-timing.ShqWmb/reference-s2-r7`.
+R7 measurement artifacts: `/Volumes/Archive/piper-data/timing-experiment/reference-s2-r7`.
 The new listening comparison is
-`/private/tmp/voice-forge-timing.ShqWmb/r7-register-listening/reference-word-registers.wav`.
+`/Volumes/Archive/piper-data/timing-experiment/r7-register-listening/reference-word-registers.wav`.
 The generic output filename replaces the old Take-3-specific filename for
 future runs; historical outputs remain intact. The synthetic timing remains
 unchanged. Requested shifts are approximately −1.8 / +4.5 / +6 semitones for
@@ -330,7 +330,7 @@ Disabling it restores much of that level, but does **not** establish a timbre
 fix. HNR increases in the rejected output: periodicity is not vocal coherence
 or perceived naturalness. Do not turn that metric into a listening pass.
 
-Report: `/private/tmp/voice-forge-timing.ShqWmb/r7-voice-integrity.json`.
+Report: `/Volumes/Archive/piper-data/timing-experiment/r7-voice-integrity.json`.
 No new listening files were issued by this diagnostic.
 
 `resynthesis_probe.py` then tests Praat TD-PSOLA, changing only the renderer.
@@ -341,7 +341,7 @@ The neutral control really passes through the renderer; it is not a bypass.
 Algorithm references: [Praat overlap-add](https://praat.org/manual/overlap-add.html)
 and [Parselmouth pitch manipulation](https://parselmouth.readthedocs.io/en/stable/examples/pitch_manipulation.html).
 
-Artifacts: `/private/tmp/voice-forge-timing.ShqWmb/r7-psola-control`.
+Artifacts: `/Volumes/Archive/piper-data/timing-experiment/r7-psola-control`.
 
 - All files retain 43008 samples at 22050 Hz; protected outer regions remain
   sample-identical to the source. The dry copy's hash matches the accepted WAV.
@@ -379,7 +379,7 @@ crossfades inside its boundaries. Everything outside is sample-identical to
 the preferred source after WAV encoding, so “you” and “it” retain their original
 samples. This is a fixed-clip diagnostic, not precise word alignment.
 
-Artifacts: `/private/tmp/voice-forge-timing.ShqWmb/r7-stole-isolation`.
+Artifacts: `/Volumes/Archive/piper-data/timing-experiment/r7-stole-isolation`.
 `stole-pitch-shifted.wav` measures about +4.42 semitones across 37 paired reliable
 frames, consistent with the original command around +4.45. Its measured word
 level remains about 2.38dB lower; no automatic gain compensation conceals that.
@@ -410,7 +410,7 @@ the clean timing experiment separate, and require a new causal test of pitched
 resynthesis before presenting another expressive candidate. No new audio or app
 change is issued in response to this rejection.
 
-Report: `/private/tmp/voice-forge-timing.ShqWmb/r7-stole-isolation/integrity.json`.
+Report: `/Volumes/Archive/piper-data/timing-experiment/r7-stole-isolation/integrity.json`.
 
 ```sh
 python experiments/piper-timing/isolation_integrity.py /absolute/isolation-manifest.json /absolute/new-report.json
@@ -449,7 +449,7 @@ Keep the original 50Hz setting for the initial audition instead of selecting
 another setting simply because one metric is slightly better. WORLD has not
 been installed or benchmarked; listening to the controlled test comes first.
 
-Artifacts: `/private/tmp/voice-forge-timing.ShqWmb/original-duration-fixed-pitch-verified`.
+Artifacts: `/Volumes/Archive/piper-data/timing-experiment/original-duration-fixed-pitch-verified`.
 `comparison.wav` contains dry → neutral → +1 → +4.45, separated by 650ms silence.
 Its component PCM is verified unchanged by concatenation. `comparison.json`
 provides exact segment offsets. The new original-duration neutral and shifted
@@ -497,7 +497,7 @@ not a general phoneme detector or a corrected pitch track. Shift magnitude,
 remaining vowel waveform, duration and levels are not retuned. A new neutral
 guard control tests whether this crossfade itself is audible.
 
-Artifacts: `/private/tmp/voice-forge-timing.ShqWmb/original-duration-onset-guard`.
+Artifacts: `/Volumes/Archive/piper-data/timing-experiment/original-duration-onset-guard`.
 The listening order remains dry → neutral → +1 → +4.45. All clips have 40704
 samples; the protected prefix is verified sample-identical to dry, and all
 samples from 1.410s onward match the corresponding previous variant exactly.
@@ -807,3 +807,22 @@ No engine change. The decision was to stay a small tool rather than become a
 multi-gigabyte one, and the conditioned models that would do emotion properly —
 style vectors, reference audio, prompt conditioning — all cost the single
 executable and the no-Python rule this project is built around.
+
+
+### Artifacts archived — 2026-09-16
+
+Everything this directory refers to by path now lives at
+`/Volumes/Archive/piper-data/timing-experiment`, with a README of its own. It
+was written to a temporary directory throughout and would not have survived a
+reboot; 167 files were copied and verified by SHA-1 before the source was
+removed. The paths above were rewritten to match, so they point at something
+that still exists.
+
+The Python environment was not archived — 277 MB of regenerable venv and caches.
+The package versions it used are recorded above, and `extend_onnx.py` is in this
+directory, so the patched model can be rebuilt if it is ever needed. The model
+itself was archived anyway, because rebuilding that environment to recover a
+61 MB file already in the repository is a poor trade.
+
+The listening pages from the session that shipped this are archived under
+`auditions/`, audio embedded so they play away from the machine that made them.
