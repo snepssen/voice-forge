@@ -363,6 +363,85 @@ do {
             TimingPlan.fullAccentDB, "and a strength past full is held at full")
 }
 
+// ------------------------------------------------------------------ prosody
+c.suite("prosody")
+do {
+    // Built by hand from what espeak really emits for these sentences, so the
+    // suite still never loads a model.
+    func stream(_ phonemes: String) -> TokenLayout {
+        var slots: [TokenSlot] = []
+        var word = 0, index = 0
+        func push(_ symbol: String, _ kind: TokenSlot.Kind, _ w: Int) {
+            slots.append(TokenSlot(index: index, symbol: symbol, kind: kind, word: w))
+            index += 1
+        }
+        push("^", .frame, -1); push("^", .blank, -1)
+        for scalar in phonemes.unicodeScalars {
+            let key = String(scalar)
+            let spoken = key != " "
+            push(key, .symbol, spoken ? word : -1)
+            push(key, .blank, spoken ? word : -1)
+            if !spoken { word += 1 }
+        }
+        push("$", .frame, -1)
+        return TokenLayout(ids: slots.map { _ in 0 }, slots: slots, words: word + 1)
+    }
+
+    // "The cat sat on the mat in the sun." -- note nine written words arrive as
+    // seven groups, because espeak runs "on the" and "in the" together.
+    let cat = stream("ðə kˈæt sˈæt ɔnðə mˈæt ɪnðə sˈʌn")
+    let groups = Prosody.prosodicGroups(cat)
+    c.equal(groups.count, 7, "a sentence is read as the groups espeak made, not its written words")
+    c.equal(groups.map(\.prominence),
+            [.reduced, .accented, .accented, .reduced, .accented, .reduced, .accented],
+            "espeak's own stress marks say which words carry weight")
+
+    let plan = Prosody.automaticDirections(cat)
+    func on(_ word: Int) -> SoundDirection? { plan.first { $0.word == word } }
+    c.expect(on(6)!.accentDB > 0, "the point of the phrase lands on its last content word")
+    c.equal(plan.filter { $0.accentDB > 0 }.count, 1,
+            "and only there — one phrase makes one point")
+    c.expect(on(0)!.stretch < 1 && on(3)!.stretch < 1 && on(5)!.stretch < 1,
+             "the unstressed words give way, so the beats come out uneven")
+    let reduced = Set(groups.filter { $0.prominence == .reduced }.map(\.word))
+    c.expect(plan.filter { $0.stretch < 1 }.allSatisfy { reduced.contains($0.word) },
+             "and only they do — a word carrying weight is never compressed")
+    c.expect(!plan.contains { $0.word == 1 },
+             "a content word that is not the point is left alone")
+
+    // Two clauses, so two points rather than one.
+    let cold = stream("ɪt wʌz kˈoʊld, ɪt wʌz lˈeɪt, ænd nˈoʊbɑːdi kˈeɪm")
+    let twice = Prosody.automaticDirections(cold)
+    c.equal(twice.filter { $0.accentDB > 0 }.count, 3, "each clause makes its own point")
+    c.expect(twice.first { $0.word == 2 }!.stretch > 1,
+             "and a phrase settles at the clause mark")
+
+    // The same word twice in a paragraph should not be hit twice.
+    let seen = Prosody.spokenKeys(stream("ðə ɡˈɑːɹdən"))
+    c.expect(seen.contains("ɡɑːɹdən"), "a word is remembered without its stress mark")
+    let fresh = Prosody.automaticDirections(stream("ɪn ðə ɡˈɑːɹdən"))
+    let again = Prosody.automaticDirections(stream("ɪn ðə ɡˈɑːɹdən"),
+                                            settings: ProsodySettings(), spoken: seen)
+    c.expect(again.first { $0.word == 2 }!.accentDB < fresh.first { $0.word == 2 }!.accentDB,
+             "hearing it a second time steps back")
+
+    // Every dial has to be able to turn off the rule it controls.
+    let flat = Prosody.automaticDirections(cat, settings: ProsodySettings(
+        focus: 0, phraseFinal: 0, deaccentRepeats: 0, contrast: 0))
+    c.equal(flat, [], "turned all the way down it directs nothing at all")
+    let noContrast = Prosody.automaticDirections(cat,
+        settings: ProsodySettings(contrast: 0))
+    c.expect(noContrast.allSatisfy { $0.stretch >= 1 }, "and contrast alone can be turned off")
+
+    c.equal(Prosody.automaticDirections(stream("")), [], "an empty sentence is not a crash")
+    c.equal(Prosody.automaticDirections(stream("ðə ɐ")).filter { $0.accentDB > 0 }.count, 0,
+            "a phrase with nothing to accent makes no point rather than inventing one")
+    for d in Prosody.automaticDirections(cold) {
+        c.expect(TimingPlan.factorRange.contains(d.stretch) && d.accentDB <= TimingPlan.fullAccentDB,
+                 "an automatic direction on \(d.word) stays inside what was approved by ear")
+    }
+}
+
 // ------------------------------------------------------------------ settings
 c.suite("settings")
 do {

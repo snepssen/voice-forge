@@ -671,6 +671,17 @@ sentence to 337 ms on the longest.
 node experiments/piper-timing/automatic_audition.mjs /absolute/epoch702-timing.onnx /absolute/out-dir
 ```
 
-**Listening verdict: pending.** The checks say the rules did what they said. They
-do not say this is a better reading, and the bar for a rule that runs on every
-sentence unasked is that it is wrong quietly. The Swift port waits on the verdict.
+**Listening verdict: accepted.** The user reports the automatic take "actually
+sounding better, more human" than flat. That approves the automatic reading as
+better than no reading on these five passages with this voice. It does not
+approve the two known defaults below, which were not what was being compared,
+and it is not a claim about emotional performance.
+
+The Swift port followed the verdict: `macos/Sources/VoiceForgeCore/Prosody.swift`
+is held to the same 23 assertions as the TypeScript suite, wording included.
+208 checks pass on one side, 269 on the other, and engine parity still reads
+1.637 s against 1.637 s.
+
+Nothing is wired into either app yet. The remaining blocker is unchanged — the
+graph this needs has a required input the shipped adapters do not supply, and
+must not be installed in the stock app.
