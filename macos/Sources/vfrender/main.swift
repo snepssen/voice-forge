@@ -55,6 +55,7 @@ case "say":
     if let v = env["VF_CLAUSE_PADS"].flatMap(Int.init) { settings.clausePads = v }
     if let v = env["VF_SENTENCE_GAP"].flatMap(Double.init) { settings.sentenceGap = v }
     if let v = env["VF_PARAGRAPH_GAP"].flatMap(Double.init) { settings.paragraphGap = v }
+    if let v = env["VF_DYNAMICS"] { settings.automaticDynamics = (v as NSString).boolValue }
 
     let started = Date()
     let rendered = try engine.render(script, settings: settings)

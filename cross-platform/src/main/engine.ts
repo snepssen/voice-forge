@@ -7,6 +7,7 @@ import { applyExpression, expressionSettings, neutralExpression, normalizedExpre
          toneFor, type SentenceExpression } from "../core/expression.js";
 import { beatPads, parsePerformanceMarkup, performanceWordCount } from "../core/performanceMarkup.js";
 import { accentEnvelope, durationFactors, type SoundDirection } from "../core/timingPlan.js";
+import { automaticDirections, defaultProsody, spokenKeys } from "../core/prosody.js";
 import { clauseMarks, spacedEmDashes, spokenCurrency, type Script } from "../core/script.js";
 import { applyDictionary, entryKey, type PronunciationEntry } from "../core/pronunciation.js";
 import { scanVoices, mergeVoices, type VoiceProfile, type VoiceRejection } from "../core/voiceLibrary.js";
@@ -318,6 +319,27 @@ export class VoiceEngine {
     return this.session.inputNames.includes(durationFactorsInput);
   }
 
+  /**
+   * How this sentence should be read, if nobody has said otherwise.
+   *
+   * Empty when the setting is off or the voice cannot be told its timing, so
+   * the caller never has to ask which of those is the case.
+   */
+  async readingFor(text: string, settings: SynthesisSettings,
+                   dictionary: PronunciationEntry[] = [],
+                   spoken: ReadonlySet<string> = new Set()): Promise<SoundDirection[]> {
+    if (!settings.automaticDynamics || !this.directsTiming) return [];
+    const { encoded } = await this.preparedPhonemes(text, settings, dictionary);
+    return automaticDirections(this.tokenLayout(encoded, settings), defaultProsody(), spoken);
+  }
+
+  /** The words this sentence has now said, to carry into the next one. */
+  async spokenKeysFor(text: string, settings: SynthesisSettings,
+                      dictionary: PronunciationEntry[] = []): Promise<Set<string>> {
+    const { encoded } = await this.preparedPhonemes(text, settings, dictionary);
+    return spokenKeys(this.tokenLayout(encoded, settings));
+  }
+
   /** One sentence, one inference call. Never less, never more. */
   async renderSentence(text: string, settings: SynthesisSettings,
                        dictionary: PronunciationEntry[] = [],
@@ -373,12 +395,22 @@ export class VoiceEngine {
                onProgress?: (done: number, total: number) => void): Promise<RenderedSentence[]> {
     const out: RenderedSentence[] = [];
     let previousTone = toneFor(neutralExpression());
+    // What the paragraph has already said, so a word is not hit twice. It is
+    // the paragraph and not the script: a word returning after a break is new
+    // again to a listener.
+    let spoken = new Set<string>();
+    let paragraph = script.sentences[0]?.paragraph ?? 0;
     for (let i = 0; i < script.sentences.length; i++) {
       const s = script.sentences[i]!;
       onProgress?.(i, script.sentences.length);
+      if (s.paragraph !== paragraph) { spoken = new Set(); paragraph = s.paragraph; }
       const expression = normalizedExpression(expressions[s.expressionKey]);
       const sentenceSettings = expressionSettings(settings, expression);
-      const raw = await this.renderSentence(s.text, sentenceSettings, dictionary);
+      const directions = await this.readingFor(s.text, sentenceSettings, dictionary, spoken);
+      const raw = await this.renderSentence(s.text, sentenceSettings, dictionary, directions);
+      for (const key of await this.spokenKeysFor(s.text, sentenceSettings, dictionary)) {
+        spoken.add(key);
+      }
       const samples = applyExpression(raw, previousTone, toneFor(expression),
                                       expression.transitionSeconds, this.sampleRate);
       previousTone = toneFor(expression);

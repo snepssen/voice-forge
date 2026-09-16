@@ -723,3 +723,28 @@ library this app has always had, and it asks nothing of the person using it.
 Nothing about the delivery has changed yet. This step deliberately buys no
 feature: it puts the capable graph in place and proves it audible-identical, so
 that when the dynamics are switched on, a regression cannot hide behind them.
+
+### Switched on — 2026-09-16
+
+`automaticDynamics` is a setting in both cores, on by default, and the render
+loop carries the paragraph's memory so the repeat rule works across sentences —
+reset at a paragraph break, because a word returning after one is new again to
+a listener.
+
+Held to the two cores, deterministically, in the parity suite:
+
+    1.637s -> 1.695s  (swift 1.637 -> 1.70)  Welcome back to the channel.
+    3.007s -> 3.274s  (swift 3.007 -> 3.27)  It was cold, it was late, and nobody came.
+
+That is a new kind of parity case. Comparing phonemes byte-for-byte no longer
+covers this: a rule that fired on one platform and not the other would leave the
+phonemes identical and the delivery different. Swift figures were captured with
+`VF_NOISEW=0 VF_DYNAMICS=1 vfrender say`, which is why the tolerance matches the
+two decimals it prints.
+
+The suite also asserts that turning it off renders exactly 1.637 s — every
+figure this app prints was measured against the flat engine, and they all have
+to stay true of it.
+
+Both cores now run the full path against the patched graph: 208 checks and 269,
+27 parity cases, and the end-to-end smoke at 35.39 s.

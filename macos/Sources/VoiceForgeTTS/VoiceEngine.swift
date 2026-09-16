@@ -144,12 +144,22 @@ public final class VoiceEngine: @unchecked Sendable {
                        onSentence: ((Int, Int) -> Void)? = nil) throws -> [RenderedSentence] {
         var out: [RenderedSentence] = []
         var previousTone = SentenceExpression.neutral.tone
+        // What the paragraph has already said, so a word is not hit twice. It
+        // is the paragraph and not the script: a word returning after a break
+        // is new again to a listener.
+        var spoken: Set<String> = []
+        var paragraph = script.sentences.first?.paragraph ?? 0
         for (i, sentence) in script.sentences.enumerated() {
             onSentence?(i, script.sentences.count)
+            if sentence.paragraph != paragraph { spoken = []; paragraph = sentence.paragraph }
             let expression = expressions[sentence.expressionKey] ?? .neutral
             let sentenceSettings = expression.applying(to: settings)
+            let directions = reading(for: sentence.text, settings: sentenceSettings,
+                                     dictionary: dictionary, spoken: spoken)
             let raw = try renderSentence(sentence.text, settings: sentenceSettings,
-                                         dictionary: dictionary)
+                                         dictionary: dictionary, directions: directions)
+            spoken.formUnion(spokenKeys(for: sentence.text, settings: sentenceSettings,
+                                        dictionary: dictionary))
             let samples = ExpressionDSP.process(raw, from: previousTone,
                                                 to: expression.tone,
                                                 transitionSeconds: expression.transitionSeconds,
@@ -191,6 +201,28 @@ public final class VoiceEngine: @unchecked Sendable {
     /// address rather than failing.
     public var directsTiming: Bool {
         ((try? session.inputNames()) ?? []).contains(Self.durationFactorsInput)
+    }
+
+    /// How this sentence should be read, if nobody has said otherwise.
+    ///
+    /// Empty when the setting is off or the voice cannot be told its timing, so
+    /// the caller never has to ask which of those is the case.
+    public func reading(for text: String, settings: SynthesisSettings,
+                        dictionary: [PronunciationEntry] = [],
+                        spoken: Set<String> = []) -> [SoundDirection] {
+        guard settings.automaticDynamics, directsTiming else { return [] }
+        let phonemized = preparedPhonemes(for: text, settings: settings,
+                                          dictionary: dictionary).encoded
+        return Prosody.automaticDirections(tokenLayout(phonemized, settings: settings),
+                                           spoken: spoken)
+    }
+
+    /// The words this sentence has now said, to carry into the next one.
+    public func spokenKeys(for text: String, settings: SynthesisSettings,
+                           dictionary: [PronunciationEntry] = []) -> Set<String> {
+        let phonemized = preparedPhonemes(for: text, settings: settings,
+                                          dictionary: dictionary).encoded
+        return Prosody.spokenKeys(tokenLayout(phonemized, settings: settings))
     }
 
     /// One sentence, one inference call. Never less, never more.
