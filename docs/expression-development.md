@@ -135,9 +135,19 @@ that specific control passes, without implying approval of pitch changes.
 The next isolated check copies only the existing shifted “stole” region into the
 preferred source. “You”, “it”, and the rest outside the approximate 1.2–1.6s
 window remain sample-identical; duration is unchanged. The +4.42-semitone measured
-shift is consistent with the existing command, but vocal-body approval is still
-pending. No stronger curve, new inference, gain compensation or app integration
-was added. A localized neutral control is retained to distinguish splice artifacts.
+shift is consistent with the existing command, but the user rejects the result
+as stretched “stoole” with light high/low crackling or static embedded in it.
+No stronger curve, new inference, gain compensation or app integration was added.
+A localized neutral control is retained to distinguish splice artifacts.
+
+Integrity checks confirm no added samples or sample clipping; the middle 370ms
+is exactly the existing TD-PSOLA output, untouched by the new edge crossfades.
+These checks narrow the diagnosis but do not identify the crackling mechanism.
+The source's +104.49ms vowel extension was inherited from the earlier timing
+test; unchanged duration does not negate perceived stretching. Stop promoting
+this shifted version, preserve the neutral listening pass as control-only, and
+require a causal resynthesis test before another expressive audition. No new
+clip or app change accompanies this rejection.
 See the experiment README and its diagnostic manifests for reproducible evidence.
 Believable emotional acting still requires separate evidence; timing control
 alone does not demonstrate happiness, anger, flirtation, or intimacy.
