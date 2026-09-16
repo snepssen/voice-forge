@@ -609,3 +609,13 @@ Headroom at +6 dB is −4.11 dBFS at worst. No limiting or compression is applie
 and none should be added to make a larger lift fit.
 
 **Listening verdict: pending.** Level selection is the open question.
+
+The user selected **+6 dB**. It is now `TimingPlan.fullAccentDB` in both cores
+rather than a number at a call site, next to the headroom figure it has to keep.
+The dial that reaches it also moves the nucleus hold, because an accent that is
+only long reads as a drawl and one that is only loud reads as a mistake.
+
+The phoneme class map and the plan builder are now ported to Swift and held to
+the same 53 assertions as the TypeScript suite, wording included. Both engines
+report their token layout from the same loop that builds their ids. Ids are
+unchanged on both sides: parity still reads 1.637 s against 1.637 s.

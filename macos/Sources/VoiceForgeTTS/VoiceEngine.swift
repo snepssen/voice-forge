@@ -342,11 +342,33 @@ public final class VoiceEngine: @unchecked Sendable {
     /// the sentence at the comma and splicing silence, which puts a cold start
     /// where a breath belongs and was heard as a stutter.
     func phonemeIDs(_ phonemized: String, settings: SynthesisSettings) -> [Int] {
+        tokenLayout(phonemized, settings: settings).ids
+    }
+
+    /// The same ids, with a parallel account of what each one is.
+    ///
+    /// Per-sound timing needs a factor for every token the model receives, in
+    /// the model's order, so it needs to know which token is the vowel and
+    /// which is the blank trailing it. Deriving both from one loop is the
+    /// point: a separate reconstruction of this layout could drift from the ids
+    /// actually sent, and a factor vector that has drifted holds the wrong sound.
+    func tokenLayout(_ phonemized: String, settings: SynthesisSettings) -> TokenLayout {
         let map = config.phoneme_id_map
         let pad = map["_"] ?? []
         var ids: [Int] = []
-        ids += map["^"] ?? []
-        ids += pad
+        var slots: [TokenSlot] = []
+        var word = 0
+
+        func push(_ values: [Int], _ symbol: String, _ kind: TokenSlot.Kind, _ w: Int) {
+            for id in values {
+                slots.append(TokenSlot(index: ids.count, symbol: symbol, kind: kind, word: w))
+                ids.append(id)
+            }
+        }
+
+        push(map["^"] ?? [], "^", .frame, -1)
+        push(pad, "^", .blank, -1)
+
         for scalar in phonemized.unicodeScalars {
             let key = String(scalar)
             let directedPads: Int? = switch key {
@@ -357,20 +379,25 @@ public final class VoiceEngine: @unchecked Sendable {
             default: nil
             }
             if let directedPads {
-                for _ in 0 ..< directedPads { ids += pad }
+                for _ in 0 ..< directedPads { push(pad, key, .directed, -1) }
                 continue
             }
             guard let id = map[key] else { continue }
-            ids += id
-            ids += pad
+            // A space separates words and belongs to neither, so the count
+            // advances after it rather than handing the gap to the word that
+            // just ended.
+            let spoken = key != " "
+            push(id, key, .symbol, spoken ? word : -1)
+            push(pad, key, .blank, spoken ? word : -1)
             if settings.clausePads > 0,
                let ch = key.first, Script.clauseMarks.contains(ch) {
-                for _ in 0 ..< settings.clausePads { ids += pad }
+                for _ in 0 ..< settings.clausePads { push(pad, key, .clause, -1) }
             }
+            if !spoken { word += 1 }
         }
-        for _ in 0 ..< settings.trailingPads { ids += pad }
-        ids += map["$"] ?? []
-        return ids
+        for _ in 0 ..< settings.trailingPads { push(pad, "$", .trailing, -1) }
+        push(map["$"] ?? [], "$", .frame, -1)
+        return TokenLayout(ids: ids, slots: slots, words: word + 1)
     }
 
     private func infer(ids: [Int], settings: SynthesisSettings) throws -> [Float] {

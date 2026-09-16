@@ -21,7 +21,7 @@ import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { VoiceEngine } from '../../cross-platform/out/main/engine.js';
 import { defaultSettings } from '../../cross-platform/out/core/settings.js';
-import { durationFactors, accentEnvelope, addedSeconds, wordPhonemes, nucleus }
+import { durationFactors, accentEnvelope, addedSeconds, wordPhonemes, nucleus, fullAccentDB }
   from '../../cross-platform/out/core/timingPlan.js';
 import { phonemeClass, susceptibility } from '../../cross-platform/out/core/phonology.js';
 import { writeWav } from '../../cross-platform/out/main/audio.js';
@@ -109,7 +109,7 @@ for (const fixture of fixtures) {
   const direction = [{ word: fixture.word, stretch: fixture.stretch, accent: 0, accentDB: 0 }];
   // The lift is the open question, so it is the only thing that varies down
   // this ladder: same stretch, same nucleus hold, more level.
-  const levels = [3, 4.5, 6];
+  const levels = [fullAccentDB];
   const accented = level => [{ word: fixture.word, stretch: fixture.stretch,
                               accent: fixture.accent, accentDB: level }];
 

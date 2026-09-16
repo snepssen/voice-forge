@@ -222,6 +222,147 @@ do {
     }
 }
 
+// ---------------------------------------------------------------- phonology
+c.suite("phonology")
+do {
+    c.equal(Phonology.phonemeClass("o"), .vowel, "a diphthong's first half is a vowel")
+    c.equal(Phonology.phonemeClass("ʊ"), .vowel, "and so is its second")
+    c.equal(Phonology.phonemeClass("ː"), .vowelExtension, "the length mark is pure duration")
+    c.equal(Phonology.phonemeClass("l"), .sonorant, "a liquid holds")
+    c.equal(Phonology.phonemeClass("z"), .voicedFricative, "voiced friction holds less well")
+    c.equal(Phonology.phonemeClass("s"), .voicelessFricative, "a hiss barely at all")
+    c.equal(Phonology.phonemeClass("t"), .plosive, "and a stop not at all")
+    c.equal(Phonology.phonemeClass("ˈ"), .marker, "stress is a mark, not a sound")
+    c.equal(Phonology.phonemeClass(" "), .boundary, "an unlisted symbol is never stretched")
+    c.equal(Phonology.phonemeClass("\u{0000}"), .boundary, "nor is one nobody anticipated")
+    // The rejection this whole class map exists to encode.
+    c.equal(PhonemeClass.plosive.susceptibility, 0, "a plosive can never be held")
+    c.expect(PhonemeClass.vowel.susceptibility > PhonemeClass.sonorant.susceptibility
+             && PhonemeClass.sonorant.susceptibility > PhonemeClass.voicedFricative.susceptibility
+             && PhonemeClass.voicedFricative.susceptibility > PhonemeClass.voicelessFricative.susceptibility
+             && PhonemeClass.voicelessFricative.susceptibility > PhonemeClass.plosive.susceptibility,
+             "and the order runs from the vowel down to the stop")
+    for klass in PhonemeClass.allCases {
+        c.expect(klass.susceptibility >= 0 && klass.susceptibility <= 1,
+                 "\(klass.rawValue) takes a sensible share of a stretch")
+    }
+}
+
+// -------------------------------------------------------------- timing plan
+c.suite("timing plan")
+do {
+    // The engine's layout, by hand, so this suite still never loads a model:
+    // every symbol is followed by the blank that carries its release.
+    func layout(_ phonemes: String) -> TokenLayout {
+        var slots: [TokenSlot] = []
+        var word = 0, index = 0
+        func push(_ symbol: String, _ kind: TokenSlot.Kind, _ w: Int) {
+            slots.append(TokenSlot(index: index, symbol: symbol, kind: kind, word: w))
+            index += 1
+        }
+        push("^", .frame, -1); push("^", .blank, -1)
+        for scalar in phonemes.unicodeScalars {
+            let key = String(scalar)
+            let spoken = key != " "
+            push(key, .symbol, spoken ? word : -1)
+            push(key, .blank, spoken ? word : -1)
+            if !spoken { word += 1 }
+        }
+        push("$", .frame, -1)
+        return TokenLayout(ids: slots.map { _ in 0 }, slots: slots, words: word + 1)
+    }
+
+    let stole = layout("stˈoʊl")
+    c.equal(TimingPlan.wordPhonemes(stole, word: 0), "stˈoʊl", "a word reads back as its own IPA")
+    c.equal(TimingPlan.nucleus(stole, word: 0).filter { $0.kind == .symbol }
+                .map(\.symbol).joined(), "oʊ",
+            "an accent lands on the vowel after the stress mark")
+    c.equal(TimingPlan.nucleus(layout("juː"), word: 0).filter { $0.kind == .symbol }
+                .map(\.symbol).joined(), "uː",
+            "an unmarked one-syllable word still has a nucleus")
+    c.equal(TimingPlan.nucleus(layout("stl"), word: 0), [], "a word with no vowel has none to find")
+
+    let held = TimingPlan.durationFactors(stole, [SoundDirection(word: 0, stretch: 2)])
+    func at(_ symbol: String, _ kind: TokenSlot.Kind = .symbol) -> Double {
+        Double(held[stole.slots.first { $0.symbol == symbol && $0.kind == kind }!.index])
+    }
+    c.close(at("s"), 1.12, 0.000_001, "a held word barely moves its hiss")
+    c.equal(at("t"), 1, "and does not move its stop at all")
+    c.equal(at("t", .blank), 1, "nor the closure the stop trails")
+    c.equal(at("o"), 2, "the vowel takes the whole direction")
+    c.equal(at("o", .blank), 2, "and so does the blank carrying its release")
+    c.close(at("l"), 1.55, 0.000_001, "the liquid takes rather more than half")
+    c.equal(held.first!, 1, "nothing outside the word is touched")
+    c.equal(held.last!, 1, "at either end")
+
+    // The rejected "ssttoollee": a uniform stretch would move every one of these.
+    c.equal(held.filter { $0 != 1 }.count, 8, "only the sounds that can be held are held")
+
+    let accented = TimingPlan.durationFactors(stole, [SoundDirection(word: 0, accent: 0.5)])
+    c.expect(accented[stole.slots.first { $0.symbol == "o" }!.index] > 1
+             && accented[stole.slots.first { $0.symbol == "l" }!.index] == 1,
+             "an accent alone moves the nucleus and nothing else in the word")
+
+    let two = layout("juː stˈoʊl")
+    let one = TimingPlan.durationFactors(two, [SoundDirection(word: 1, stretch: 2)])
+    c.expect(TimingPlan.wordSlots(two, word: 0).allSatisfy { one[$0.index] == 1 },
+             "directing one word leaves its neighbour exactly alone")
+
+    for stretch in [0.25, 1.0, 4.0] {
+        let extreme = TimingPlan.durationFactors(stole,
+            [SoundDirection(word: 0, stretch: stretch, accent: 3)])
+        c.expect(extreme.allSatisfy { TimingPlan.factorRange.contains(Double($0)) },
+                 "a stretch of \(stretch) still lands inside the graph's range")
+    }
+
+    c.equal(TimingPlan.durationFactors(stole, []),
+            [Float](repeating: 1, count: stole.ids.count),
+            "no direction is a vector of ones, which the model must render unchanged")
+
+    // Alignment comes from the model's own reported frames, not from a guess.
+    c.equal(TimingPlan.sampleBounds([2, 3, 1], hop: 256), [0, 512, 1280, 1536],
+            "token bounds follow the frames")
+    c.close(TimingPlan.addedSeconds(base: [2, 3], actual: [2, 5], hop: 256, rate: 22_050),
+            0.0232, 0.0001, "added time is reported, not assumed")
+
+    let hop = 256, perToken = 2
+    let frames = [Float](repeating: Float(perToken), count: stole.ids.count)
+    let samples = stole.ids.count * perToken * hop
+    let ceiling = pow(10.0, 4.5 / 20)
+    let gain = TimingPlan.accentEnvelope(stole, [SoundDirection(word: 0, accentDB: 4.5)],
+                                         frames: frames, samples: samples, hop: hop)
+    c.equal(gain.count, samples, "the lift covers the whole take")
+    c.expect(gain.allSatisfy { Double($0) >= 1 && Double($0) <= ceiling + 0.000_001 },
+             "an accent lift stays within the dB it was asked for")
+    c.equal(gain.first!, 1, "and starts from unity rather than stepping")
+
+    // The fix that matters: full lift on the vowel, not on the word's midpoint.
+    let bounds = TimingPlan.sampleBounds(frames, hop: hop)
+    let core = TimingPlan.nucleus(stole, word: 0)
+    let mid = (bounds[core.first!.index] + bounds[core.last!.index + 1]) / 2
+    c.close(Double(gain[mid]), ceiling, 0.000_001,
+            "the accent is at full level across its nucleus")
+    let stop = stole.slots.first { $0.symbol == "t" && $0.kind == .symbol }!
+    c.expect(Double(gain[bounds[stop.index]]) < ceiling,
+             "and not at full level on the stop in front of it")
+    c.expect(zip(gain, gain.dropFirst()).allSatisfy { abs($0 - $1) < 0.01 },
+             "the lift never steps, so nothing clicks")
+    let quiet = TimingPlan.accentEnvelope(stole, [SoundDirection(word: 0)],
+                                          frames: frames, samples: samples, hop: hop)
+    c.expect(quiet.allSatisfy { $0 == 1 }, "no lift asked for is no lift applied")
+
+    c.equal(TimingPlan.fullAccentDB, 6, "a full accent is the level that was chosen by ear")
+    c.equal(TimingPlan.accented(word: 0, stretch: 1, strength: 1).accentDB,
+            TimingPlan.fullAccentDB, "one dial at full gives that level")
+    c.equal(TimingPlan.accented(word: 0, stretch: 1, strength: 0).accentDB, 0,
+            "and at nothing gives none")
+    c.expect(TimingPlan.accented(word: 0, stretch: 1, strength: 0.5).accent > 0
+             && TimingPlan.accented(word: 0, stretch: 1, strength: 0.5).accentDB > 0,
+             "hold and level move together rather than separately")
+    c.equal(TimingPlan.accented(word: 0, stretch: 1, strength: 4).accentDB,
+            TimingPlan.fullAccentDB, "and a strength past full is held at full")
+}
+
 // ------------------------------------------------------------------ settings
 c.suite("settings")
 do {

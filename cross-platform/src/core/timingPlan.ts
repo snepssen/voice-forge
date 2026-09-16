@@ -19,6 +19,16 @@ import { isStress, isVowelish, phonemeClass, primaryStress, susceptibility } fro
 /** What the harness accepts, and well inside where the graph stays sensible. */
 export const factorRange = { min: 0.5, max: 2.5 } as const;
 
+/**
+ * The level a full accent is given, chosen by ear against +3 and +4.5 on the
+ * bundled voice. It is a listening decision, not a derived figure, so it sits
+ * here under its own name rather than appearing as a number at a call site —
+ * and like every other measurement in this app it belongs to the voice it was
+ * chosen on. Worst-case sample peak at this level was -4.11 dBFS, with no
+ * limiting, which is the headroom any change to it has to keep.
+ */
+export const fullAccentDB = 6;
+
 export interface SoundDirection {
   /** Index of the spoken word within this sentence's phoneme stream. */
   word: number;
@@ -32,6 +42,17 @@ export interface SoundDirection {
 
 export const neutralDirection = (word: number): SoundDirection =>
   ({ word, stretch: 1, accent: 0, accentDB: 0 });
+
+/**
+ * One dial's worth of accent: hold and level move together, because an accent
+ * that is only long reads as a drawl and one that is only loud reads as a
+ * mistake. Strength runs 0 to 1, and at 1 the level is the settled one.
+ */
+export const accentedDirection = (word: number, stretch: number,
+                                  strength: number): SoundDirection => {
+  const s = clamp(strength, 0, 1);
+  return { word, stretch, accent: 0.6 * s, accentDB: fullAccentDB * s };
+};
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 

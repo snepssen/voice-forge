@@ -305,6 +305,16 @@ setSuite("timing plan");
   const quiet = T.accentEnvelope(stole, [{ word: 0, stretch: 1, accent: 0, accentDB: 0 }],
                                  frames, samples, hop);
   expect([...quiet].every(v => v === 1), "no lift asked for is no lift applied");
+
+  equal(T.fullAccentDB, 6, "a full accent is the level that was chosen by ear");
+  equal(T.accentedDirection(0, 1, 1).accentDB, T.fullAccentDB,
+        "one dial at full gives that level");
+  equal(T.accentedDirection(0, 1, 0).accentDB, 0, "and at nothing gives none");
+  expect(T.accentedDirection(0, 1, 0.5).accent > 0
+    && T.accentedDirection(0, 1, 0.5).accentDB > 0,
+    "hold and level move together rather than separately");
+  equal(T.accentedDirection(0, 1, 4).accentDB, T.fullAccentDB,
+        "and a strength past full is held at full");
 }
 
 // ----------------------------------------------------------------- settings
