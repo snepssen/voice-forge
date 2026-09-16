@@ -40,9 +40,9 @@ model call. Pronunciations can be edited as IPA or seeded from an ordinary
 
 There is no emotion selector. One was built — Happy, Playful, Intimate, Flirty,
 Angry — and it is gone from the interface because it did not earn its place. The
-honest reason is written down in `experiments/piper-timing`: this voice is not
-style-conditioned, so an expression could only reach pace, two noise scales and
-some EQ, and none of the three survived. The pace moved 2% of a 13% request
+honest reason is in [docs/expression-development.md](docs/expression-development.md):
+this voice is not style-conditioned, so an expression could only reach pace, two
+noise scales and some EQ, and none of the three survived. The pace moved 2% of a 13% request
 because the graph rounds every token up to a whole frame. The noise scales only
 redrew the dice. The EQ read as loudness rather than character. Rebuilding it on
 the timing layer made the six measurably different — and still not convincing
