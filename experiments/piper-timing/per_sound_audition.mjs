@@ -107,8 +107,11 @@ for (const fixture of fixtures) {
 
   const baseFrames = neutral.vf_base_frames.data;
   const direction = [{ word: fixture.word, stretch: fixture.stretch, accent: 0, accentDB: 0 }];
-  const accented = [{ word: fixture.word, stretch: fixture.stretch,
-                      accent: fixture.accent, accentDB: 1.5 }];
+  // The lift is the open question, so it is the only thing that varies down
+  // this ladder: same stretch, same nucleus hold, more level.
+  const levels = [3, 4.5, 6];
+  const accented = level => [{ word: fixture.word, stretch: fixture.stretch,
+                              accent: fixture.accent, accentDB: level }];
 
   // The rejected control: every token of the word, including its stops.
   const uniform = new Float32Array(ids.length).fill(1);
@@ -118,21 +121,36 @@ for (const fixture of fixtures) {
     }
   }
   const weighted = durationFactors(layout, direction);
-  const leaned = durationFactors(layout, accented);
 
   const takes = [
     { label: 'Dry — no direction', factors: ones },
     { label: `Uniform ×${fixture.stretch} (the rejected kind)`, factors: uniform },
-    { label: `Per sound ×${fixture.stretch}`, factors: weighted },
-    { label: `Per sound ×${fixture.stretch} with accent`, factors: leaned, envelope: accented },
+    { label: `Per sound ×${fixture.stretch}, no accent`, factors: weighted },
+    ...levels.map(level => ({
+      label: `Accent +${level} dB`,
+      factors: durationFactors(layout, accented(level)),
+      envelope: accented(level),
+    })),
   ];
 
   const entry = { text: fixture.text, phonemes, word: fixture.word, target,
                   nucleus: nucleus(layout, fixture.word).filter(s => s.kind === 'symbol')
                     .map(s => s.symbol).join(''), takes: [] };
 
+  // Acoustic noise is unseeded, so two inference calls differ by their draw as
+  // well as by their direction. The accent ladder asks for the same timing at
+  // three levels, so it must come from one draw: otherwise a listener judging
+  // a 1.5 dB step is also hearing a different noise field, and the sample peak
+  // stops being evidence about the lift at all.
+  const drawn = new Map();
+  const renderOnce = async factors => {
+    const key = factors.join(',');
+    if (!drawn.has(key)) drawn.set(key, await run(experimental, ids, factors, textured.noiseScale));
+    return drawn.get(key);
+  };
+
   for (const take of takes) {
-    const result = await run(experimental, ids, take.factors, textured.noiseScale);
+    const result = await renderOnce(take.factors);
     const frames = result[framesName].data;
     assert.deepEqual(result.vf_base_frames.data, baseFrames, 'The duration prediction itself moved');
 
@@ -200,8 +218,10 @@ audio{height:32px;flex:1}p.note{color:#8d8d86;font-size:.85rem}</style>
 it, stops included — the kind that was rejected as “ssttoollee”. The per-sound take
 asks for the same amount but gives each sound only as much as its class can take, so
 the stops keep their exact predicted duration. The last take adds an accent: more
-hold on the stressed vowel alone, and 1.5&nbsp;dB of lift across the word. No pitch
-is shifted anywhere.</p>
+hold on the stressed vowel alone, and a level lift shaped around that vowel rather
+than across the word &mdash; full value over the nucleus, ramped either side, so the
+loudest moment is where the accent actually is. The three accent takes differ only
+in that level. No pitch is shifted anywhere.</p>
 ${page.join('\n')}
 <p class="note">Acoustic noise is the model's own ${textured.noiseScale}; duration noise is zero, so
 timing is deterministic and one take differs from another by the direction. Signal

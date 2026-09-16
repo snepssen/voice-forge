@@ -117,28 +117,51 @@ export function sampleBounds(frames: ArrayLike<number>, hop: number): number[] {
 }
 
 /**
- * A gentle level lift over each accented word. Linear gain only, raised-cosine
- * edges so nothing clicks, and no compression: this is the difference between
- * a syllable that is merely long and one that is leaned on.
+ * The level lift over each accented word.
+ *
+ * Shaped around the nucleus rather than the word: the lift reaches full value
+ * across the stressed vowel and ramps either side of it. A single cosine over
+ * the whole word peaks at the word's midpoint, which lands on a consonant as
+ * often as not — the lift was then loudest where the accent was not, which
+ * reads as subtle however many dB it is given.
+ *
+ * Linear gain only, no compression. The ramps never run shorter than a frame,
+ * so a word that opens straight onto its vowel still rises into the lift
+ * instead of stepping into it.
  */
 export function accentEnvelope(layout: TokenLayout, directions: SoundDirection[],
                                frames: ArrayLike<number>, samples: number,
                                hop: number): Float32Array {
   const envelope = new Float32Array(samples).fill(1);
   const bounds = sampleBounds(frames, hop);
+  const at = (index: number) =>
+    clamp(bounds[clamp(index, 0, bounds.length - 1)] ?? 0, 0, samples);
+
   for (const direction of directions) {
     if (!direction.accentDB) continue;
     const slots = wordSlots(layout, direction.word);
     if (!slots.length) continue;
-    const first = slots[0]!.index, last = slots[slots.length - 1]!.index;
-    const start = clamp(bounds[first] ?? 0, 0, samples);
-    const end = clamp(bounds[Math.min(last + 1, bounds.length - 1)] ?? 0, 0, samples);
-    const span = end - start;
-    if (span <= 1) continue;
+    const wordStart = at(slots[0]!.index);
+    const wordEnd = at(slots[slots.length - 1]!.index + 1);
+    if (wordEnd - wordStart <= 1) continue;
+
+    const core = nucleus(layout, direction.word);
+    let holdStart = core.length ? at(core[0]!.index) : wordStart;
+    let holdEnd = core.length ? at(core[core.length - 1]!.index + 1) : wordEnd;
+    // Borrow a frame from the nucleus when there is no onset or coda to ramp
+    // across, rather than stepping the gain and clicking.
+    if (holdStart - wordStart < hop) holdStart = Math.min(holdEnd, wordStart + hop);
+    if (wordEnd - holdEnd < hop) holdEnd = Math.max(holdStart, wordEnd - hop);
+
     const peak = Math.pow(10, direction.accentDB / 20) - 1;
-    for (let i = start; i < end; i++) {
-      const phase = (i - start) / span;
-      envelope[i] = 1 + peak * 0.5 * (1 - Math.cos(2 * Math.PI * phase));
+    for (let i = wordStart; i < holdStart; i++) {
+      const phase = (i - wordStart) / Math.max(1, holdStart - wordStart);
+      envelope[i] = 1 + peak * 0.5 * (1 - Math.cos(Math.PI * phase));
+    }
+    for (let i = holdStart; i < holdEnd; i++) envelope[i] = 1 + peak;
+    for (let i = holdEnd; i < wordEnd; i++) {
+      const phase = (i - holdEnd) / Math.max(1, wordEnd - holdEnd);
+      envelope[i] = 1 + peak * 0.5 * (1 + Math.cos(Math.PI * phase));
     }
   }
   return envelope;

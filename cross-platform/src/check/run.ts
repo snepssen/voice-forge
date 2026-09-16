@@ -278,11 +278,33 @@ setSuite("timing plan");
   equal(T.sampleBounds([2, 3, 1], 256), [0, 512, 1280, 1536], "token bounds follow the frames");
   close(T.addedSeconds([2, 3], [2, 5], 256, 22050), 0.0232, 1e-4, "added time is reported, not assumed");
 
-  const gain = T.accentEnvelope(stole, [{ word: 0, stretch: 1, accent: 0, accentDB: 2 }],
-                                new Array(stole.ids.length).fill(2), 1536, 256);
-  expect(gain.every(v => v >= 1 && v <= Math.pow(10, 2 / 20) + 1e-6),
+  const hop = 256, perToken = 2;
+  const frames = new Array(stole.ids.length).fill(perToken);
+  const samples = stole.ids.length * perToken * hop;
+  const ceiling = Math.pow(10, 4.5 / 20);
+  const gain = T.accentEnvelope(stole, [{ word: 0, stretch: 1, accent: 0, accentDB: 4.5 }],
+                                frames, samples, hop);
+  equal(gain.length, samples, "the lift covers the whole take");
+  expect([...gain].every(v => v >= 1 && v <= ceiling + 1e-6),
          "an accent lift stays within the dB it was asked for");
-  expect(gain[0] === 1, "and starts from unity rather than stepping");
+  equal(gain[0]!, 1, "and starts from unity rather than stepping");
+
+  // The fix that matters: full lift on the vowel, not on the word's midpoint.
+  const span = (slots: TokenSlot[]) => {
+    const bounds = T.sampleBounds(frames, hop);
+    return [bounds[slots[0]!.index]!, bounds[slots[slots.length - 1]!.index + 1]!] as const;
+  };
+  const [coreStart, coreEnd] = span(T.nucleus(stole, 0));
+  const mid = Math.floor((coreStart + coreEnd) / 2);
+  close(gain[mid]!, ceiling, 1e-6, "the accent is at full level across its nucleus");
+  const stop = stole.slots.find(s => s.symbol === "t" && s.kind === "symbol")!;
+  expect(gain[T.sampleBounds(frames, hop)[stop.index]!]! < ceiling,
+         "and not at full level on the stop in front of it");
+  expect([...gain].every((v, i) => i === 0 || Math.abs(v - gain[i - 1]!) < 0.01),
+         "the lift never steps, so nothing clicks");
+  const quiet = T.accentEnvelope(stole, [{ word: 0, stretch: 1, accent: 0, accentDB: 0 }],
+                                 frames, samples, hop);
+  expect([...quiet].every(v => v === 1), "no lift asked for is no lift applied");
 }
 
 // ----------------------------------------------------------------- settings

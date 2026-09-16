@@ -583,3 +583,29 @@ intended tokens moved and no others did. It does not establish that a held vowel
 reads as delivery, that the weights between the two settled ends are right, or
 that an accent reads as emphasis rather than as length. The app is unchanged and
 the experimental graph still must not be installed in it.
+
+#### Accent level and placement
+
+The user reported the 1.5 dB lift too subtle. Two things changed, and only one
+of them is the number.
+
+The lift was a single raised cosine across the whole word, so it peaked at the
+word's midpoint — which lands on a consonant as often as on the vowel being
+accented. It now reaches full value across the nucleus and ramps either side of
+it, so the loudest moment is where the accent is. Ramps are never shorter than
+one frame, borrowed from the nucleus when a word opens straight onto its vowel,
+so the gain cannot step. The suite asserts full level at the nucleus midpoint,
+less than full level on the stop in front of it, and no sample-to-sample jump.
+
+The audition now offers +3, +4.5 and +6 dB. Those three takes share one
+inference: their duration factors are identical, and acoustic noise is unseeded,
+so rendering them separately would have made a listener judging a 1.5 dB step
+hear a different noise draw at the same time. With the draw shared, sample peaks
+rise monotonically with the lift — about 1.4 dB per step. "The boat goes slowly"
+holds at −9.25 dBFS across all three because its sample peak falls outside the
+accented word, which is the envelope staying where it was put.
+
+Headroom at +6 dB is −4.11 dBFS at worst. No limiting or compression is applied
+and none should be added to make a larger lift fit.
+
+**Listening verdict: pending.** Level selection is the open question.
