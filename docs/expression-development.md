@@ -128,8 +128,16 @@ and duration, with a genuinely resynthesized zero-shift control. Neutral word
 levels and estimated pitch stay close to the source. The shifted output still
 fails verification: too few reliable frames on “you” and an unresolved octave
 disagreement on “it”. Both retain the recognized sentence; that does not certify
-coherence. The shifted output is not promoted as a replacement audition. Evaluate
-the neutral control's vocal body separately before attempting more pitch transfer.
+coherence. The shifted output is not promoted as a replacement audition. The user
+now reports that the original and zero-shift control sound identical by ear:
+that specific control passes, without implying approval of pitch changes.
+
+The next isolated check copies only the existing shifted “stole” region into the
+preferred source. “You”, “it”, and the rest outside the approximate 1.2–1.6s
+window remain sample-identical; duration is unchanged. The +4.42-semitone measured
+shift is consistent with the existing command, but vocal-body approval is still
+pending. No stronger curve, new inference, gain compensation or app integration
+was added. A localized neutral control is retained to distinguish splice artifacts.
 See the experiment README and its diagnostic manifests for reproducible evidence.
 Believable emotional acting still requires separate evidence; timing control
 alone does not demonstrate happiness, anger, flirtation, or intimacy.
