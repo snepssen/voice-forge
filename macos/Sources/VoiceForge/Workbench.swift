@@ -39,27 +39,37 @@ struct Workbench: View {
     // MARK: toolbar
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItemGroup {
-            if let busy = studio.busy {
+        if let busy = studio.busy {
+            ToolbarItem(placement: .status) {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
                     Text(busy).font(.caption).foregroundStyle(Monokai.comment)
                 }
             }
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
             Button { Task { await studio.renderAll() } } label: { Label("Render", systemImage: "waveform") }
                 .disabled(studio.busy != nil || studio.script.isEmpty)
             Button { studio.play() } label: { Label("Play", systemImage: "play.fill") }
                 .disabled(studio.rendered.isEmpty)
             Button { studio.stop() } label: { Label("Stop", systemImage: "stop.fill") }
                 .disabled(studio.rendered.isEmpty)
-            Picker("", selection: $studio.appearance) {
+        }
+        // Give the native segmented control its own toolbar item and intrinsic
+        // width. A forced 110-point frame inside the transport group can be
+        // narrower than the macOS control, drawing over Stop's hit area.
+        ToolbarItem(placement: .primaryAction) {
+            Picker("Appearance", selection: $studio.appearance) {
                 ForEach(Appearance.allCases) { a in
                     Image(systemName: a == .system ? "circle.lefthalf.filled"
                           : a == .light ? "sun.max" : "moon").tag(a)
                 }
             }
-            .pickerStyle(.segmented).labelsHidden().frame(width: 110)
+            .pickerStyle(.segmented).labelsHidden()
+            .fixedSize(horizontal: true, vertical: false)
             .help("Follow the system, or pin light or dark")
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
             Button { studio.showingDictionary = true } label: {
                 Label("Dictionary", systemImage: "character.book.closed")
             }
@@ -81,7 +91,7 @@ struct Workbench: View {
                         .scrollContentBackground(.hidden)
                         .background(Monokai.inset, in: RoundedRectangle(cornerRadius: 6))
                         .frame(minHeight: 150)
-                    Text("A blank line starts a new paragraph. Each sentence becomes one call to the model — never more, never less.")
+                    Text("A blank line starts a paragraph; every sentence remains one model call. Put *asterisks* around words for phrase focus. Add [[beat:short]], [[beat]], or [[beat:long]] for an authored breath inside that same call.")
                         .font(.caption).foregroundStyle(Monokai.comment)
                         .fixedSize(horizontal: false, vertical: true)
                     Divider().overlay(Monokai.inset)
@@ -276,7 +286,9 @@ struct Workbench: View {
 
     private var controls: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) { pauses; scales; advanced; exportPanel }
+            VStack(alignment: .leading, spacing: 14) {
+                pauses; scales; advanced; exportPanel
+            }
                 .padding(14)
         }
     }
@@ -477,6 +489,17 @@ private struct SentenceRow: View {
                     .foregroundStyle(selected ? Monokai.purple : Monokai.fg)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
+                if r.expression.preset != .neutral {
+                    Text(r.expression.preset.name)
+                        .font(.caption2).foregroundStyle(Monokai.orange)
+                }
+                let cues = PerformanceMarkup.cueCounts(r.text)
+                if cues.focus + cues.beats > 0 {
+                    Text([cues.focus > 0 ? "\(cues.focus) focus" : nil,
+                          cues.beats > 0 ? "\(cues.beats) beat" : nil]
+                        .compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption2).foregroundStyle(Monokai.yellow)
+                }
                 Text(String(format: "%.2fs", r.seconds))
                     .monospacedDigit().font(.caption).foregroundStyle(Monokai.comment)
             }
@@ -489,6 +512,7 @@ private struct SentenceRow: View {
                     Button("Play") { studio.playOne(r.id) }.controlSize(.small)
                     Button("Re-roll") { Task { await studio.reroll(r.id) } }
                         .controlSize(.small)
+                        .disabled(studio.busy != nil)
                         .help("Render this sentence again. The model is stochastic, so it is a different take.")
                 }
                 .font(.caption).monospacedDigit().foregroundStyle(Monokai.comment)

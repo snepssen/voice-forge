@@ -12,10 +12,16 @@ final class Studio: ObservableObject {
     Welcome back to the channel. Today we are looking at something a little different.
 
     I have been building a text to speech tool, and the interesting part is not the voice — it is the timing. A comma is worth about half a second here, which is longer than most people expect.
-    """
+    """ {
+        didSet { parsedScript = nil }
+    }
     @Published var voice: String = VoiceEngine.availableVoices().first?.name ?? ""
     @Published var settings = SynthesisSettings()
     @Published var export = Export.Settings()
+    /// Performance recipes are keyed by sentence content rather than row
+    /// number, so inserting an earlier sentence does not move an expression to
+    /// the wrong words.
+    @Published var expressions: [String: SentenceExpression] = [:] { didSet { save() } }
 
     @Published private(set) var rendered: [RenderedSentence] = []
     @Published private(set) var calibration: PauseCalibration?
@@ -32,8 +38,15 @@ final class Studio: ObservableObject {
     @Published var showingDictionary = false
     @Published var appearance: Appearance = .system { didSet { save() } }
 
-    /// Rebuilt from `text` on every keystroke. Cheap — no model involved.
-    var script: Script { Script.parse(text) }
+    /// The editor changes text frequently, but selecting a rendered line must
+    /// not re-parse the whole script merely because the window redraws.
+    private var parsedScript: Script?
+    var script: Script {
+        if let parsedScript { return parsedScript }
+        let parsed = Script.parse(text)
+        parsedScript = parsed
+        return parsed
+    }
 
     var voices: [String] { profiles.map(\.name) }
     var profiles: [VoiceProfile] { VoiceEngine.availableVoices() }
@@ -116,6 +129,7 @@ final class Studio: ObservableObject {
         /// then drifts.
         var projectEntries: [PronunciationEntry]?
         var appearance: Appearance?
+        var expressions: [String: SentenceExpression]?
     }
 
     private static var globalDictionaryURL: URL {
@@ -137,6 +151,7 @@ final class Studio: ObservableObject {
         settings = saved.settings
         export = saved.export
         appearance = saved.appearance ?? .system
+        expressions = saved.expressions ?? [:]
         calibrations = saved.calibrations
         calibration = calibrations[voice]
 
@@ -153,7 +168,8 @@ final class Studio: ObservableObject {
         guard !loading else { return }
         let saved = Saved(text: text, voice: voice, settings: settings,
                           export: export, calibrations: calibrations,
-                          projectEntries: dictionary.project, appearance: appearance)
+                          projectEntries: dictionary.project, appearance: appearance,
+                          expressions: expressions)
         try? JSONEncoder().encode(saved).write(to: Self.stateURL, options: .atomic)
         try? JSONEncoder().encode(dictionary.global)
             .write(to: Self.globalDictionaryURL, options: .atomic)
@@ -190,6 +206,11 @@ final class Studio: ObservableObject {
     /// makes every entry read as invalid -- correct, since nothing can be
     /// validated against a voice that is not there.
     var vocabulary: Set<String> { (try? engine(voice))?.vocabularySet ?? [] }
+
+    /// Whether the chosen voice can be told its own timing. A voice that cannot
+    /// gets a disabled control and the reason, rather than a switch that looks
+    /// like it works and changes nothing.
+    var directsTiming: Bool { (try? engine(voice))?.directsTiming ?? false }
 
     /// What espeak says for a word on its own, for the "says it as" column.
     func defaultPhonemes(for word: String) -> String {
@@ -263,11 +284,31 @@ final class Studio: ObservableObject {
         totalSeconds > 0 ? Double(script.wordCount) / totalSeconds * 60 : 0
     }
 
-    /// What the finished take measures, before any export gain.
-    var takeLUFS: Double {
-        guard !rendered.isEmpty else { return -.infinity }
-        return Loudness.integratedLUFS(assembled(), rate: sampleRate)
+    // MARK: expression
+
+    var selectedSentence: RenderedSentence? {
+        guard let selected else { return nil }
+        return rendered.first { $0.id == selected }
     }
+
+    func expression(for key: String) -> SentenceExpression {
+        expressions[key] ?? .neutral
+    }
+
+    func setExpression(_ expression: SentenceExpression, for key: String) {
+        if expression.preset == .neutral {
+            expressions[key] = nil
+        } else {
+            expressions[key] = expression
+        }
+    }
+
+    func clearExpressions() { expressions.removeAll() }
+
+    /// What the finished take measures, before any export gain. It is measured
+    /// beside the export preview, never from a SwiftUI view-body redraw.
+    @Published private(set) var takeLUFS: Double = -.infinity
+    private var previewGeneration = 0
 
     func assembled() -> [Float] {
         guard let e = try? engine(voice) else { return [] }
@@ -277,13 +318,16 @@ final class Studio: ObservableObject {
     // MARK: work
 
     func renderAll() async {
-        guard !script.isEmpty else { rendered = []; return }
+        guard busy == nil else { return }
+        guard !script.isEmpty else {
+            rendered = []; selected = nil; refreshPreview(); return
+        }
         busy = "Rendering"; progress = 0; error = nil
-        let s = settings, v = voice, sc = script, d = activeEntries
+        let s = settings, v = voice, sc = script, d = activeEntries, x = expressions
         do {
             let e = try engine(v)
             let out = try await Task.detached { [weak self] in
-                try e.render(sc, settings: s, dictionary: d) { i, n in
+                try e.render(sc, settings: s, dictionary: d, expressions: x) { i, n in
                     Task { @MainActor in self?.progress = Double(i) / Double(n) }
                 }
             }.value
@@ -298,11 +342,22 @@ final class Studio: ObservableObject {
     /// view body.
     func refreshPreview() {
         let audio = assembled()
-        guard !audio.isEmpty else { exportPreview = nil; return }
+        previewGeneration += 1
+        let generation = previewGeneration
+        guard !audio.isEmpty else {
+            exportPreview = nil
+            takeLUFS = -.infinity
+            return
+        }
         let rate = sampleRate, settings = export
         Task.detached { [weak self] in
             let p = Export.preview(audio, at: rate, settings: settings)
-            await MainActor.run { self?.exportPreview = p }
+            let lufs = Loudness.integratedLUFS(audio, rate: rate)
+            await MainActor.run {
+                guard let self, generation == self.previewGeneration else { return }
+                self.exportPreview = p
+                self.takeLUFS = lufs
+            }
         }
     }
 
@@ -311,18 +366,32 @@ final class Studio: ObservableObject {
     /// point: one line in ten lands oddly and re-rolling it is cheaper than
     /// rewriting it.
     func reroll(_ id: Int) async {
+        guard busy == nil else { return }
         guard let index = rendered.firstIndex(where: { $0.id == id }) else { return }
         busy = "Re-rolling"; error = nil
         do {
             let e = try engine(voice)
             let old = rendered[index]
-            let samples = try e.renderSentence(old.text, settings: settings,
-                                               dictionary: activeEntries)
+            let currentExpression = expression(for: old.expressionKey)
+            let sentenceSettings = currentExpression.applying(to: settings)
+            let entries = activeEntries
+            let previousTone = index > 0
+                ? rendered[index - 1].expression.tone
+                : SentenceExpression.neutral.tone
+            let samples = try await Task.detached {
+                let raw = try e.renderSentence(old.text, settings: sentenceSettings,
+                                               dictionary: entries)
+                return ExpressionDSP.process(raw, from: previousTone,
+                                             to: currentExpression.tone,
+                                             transitionSeconds: currentExpression.transitionSeconds,
+                                             sampleRate: e.sampleRate)
+            }.value
             let seconds = Audio.seconds(samples, at: e.sampleRate)
-            let words = old.text.split(whereSeparator: \.isWhitespace).count
+            let words = PerformanceMarkup.wordCount(old.text)
             defer { refreshPreview() }
             rendered[index] = RenderedSentence(
-                id: old.id, text: old.text, samples: samples,
+                id: old.id, expressionKey: old.expressionKey, expression: currentExpression,
+                text: old.text, samples: samples,
                 trailingGap: old.trailingGap, seconds: seconds,
                 peakDBFS: Audio.peakDBFS(samples),
                 wordsPerMinute: seconds > 0 ? Double(words) / seconds * 60 : 0)
@@ -331,6 +400,7 @@ final class Studio: ObservableObject {
     }
 
     func calibrate() async {
+        guard busy == nil else { return }
         busy = "Measuring"; progress = 0; error = nil
         let s = settings, v = voice
         do {

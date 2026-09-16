@@ -41,6 +41,8 @@ public enum VoiceEngineError: LocalizedError {
 /// one running long or landing quiet.
 public struct RenderedSentence: Sendable {
     public var id: Int
+    public var expressionKey: String
+    public var expression: SentenceExpression
     public var text: String
     public var samples: [Float]
     /// Silence laid *after* this sentence before the next one begins.
@@ -50,9 +52,12 @@ public struct RenderedSentence: Sendable {
     /// Words per minute over this sentence alone, silence included.
     public var wordsPerMinute: Double
 
-    public init(id: Int, text: String, samples: [Float], trailingGap: Double,
+    public init(id: Int, expressionKey: String = "",
+                expression: SentenceExpression = .neutral,
+                text: String, samples: [Float], trailingGap: Double,
                 seconds: Double, peakDBFS: Double, wordsPerMinute: Double) {
-        self.id = id; self.text = text; self.samples = samples
+        self.id = id; self.expressionKey = expressionKey; self.expression = expression
+        self.text = text; self.samples = samples
         self.trailingGap = trailingGap; self.seconds = seconds
         self.peakDBFS = peakDBFS; self.wordsPerMinute = wordsPerMinute
     }
@@ -135,12 +140,34 @@ public final class VoiceEngine: @unchecked Sendable {
     /// silence between them.
     public func render(_ script: Script, settings: SynthesisSettings,
                        dictionary: [PronunciationEntry] = [],
+                       expressions: [String: SentenceExpression] = [:],
                        onSentence: ((Int, Int) -> Void)? = nil) throws -> [RenderedSentence] {
         var out: [RenderedSentence] = []
+        var previousTone = SentenceExpression.neutral.tone
+        // What the paragraph has already said, so a word is not hit twice. It
+        // is the paragraph and not the script: a word returning after a break
+        // is new again to a listener.
+        var spoken: Set<String> = []
+        var paragraph = script.sentences.first?.paragraph ?? 0
         for (i, sentence) in script.sentences.enumerated() {
             onSentence?(i, script.sentences.count)
-            let samples = try renderSentence(sentence.text, settings: settings,
-                                             dictionary: dictionary)
+            if sentence.paragraph != paragraph { spoken = []; paragraph = sentence.paragraph }
+            let expression = expressions[sentence.expressionKey] ?? .neutral
+            let sentenceSettings = expression.applying(to: settings)
+            let readingSettings = expression.prosody
+            let directions = reading(for: sentence.text, settings: sentenceSettings,
+                                     dictionary: dictionary, spoken: spoken,
+                                     prosody: readingSettings)
+            let raw = try renderSentence(sentence.text, settings: sentenceSettings,
+                                         dictionary: dictionary, directions: directions,
+                                         lift: readingSettings.lift)
+            spoken.formUnion(spokenKeys(for: sentence.text, settings: sentenceSettings,
+                                        dictionary: dictionary))
+            let samples = ExpressionDSP.process(raw, from: previousTone,
+                                                to: expression.tone,
+                                                transitionSeconds: expression.transitionSeconds,
+                                                sampleRate: sampleRate)
+            previousTone = expression.tone
             // The gap that follows this sentence. A paragraph break replaces
             // the sentence gap rather than adding to it -- two silences laid
             // end to end is how a "0.6 s paragraph" quietly becomes 0.68.
@@ -148,9 +175,10 @@ public final class VoiceEngine: @unchecked Sendable {
                 ? 0
                 : (sentence.endsParagraph ? settings.paragraphGap : settings.sentenceGap)
             let seconds = Audio.seconds(samples, at: sampleRate)
-            let words = sentence.text.split(whereSeparator: \.isWhitespace).count
+            let words = PerformanceMarkup.wordCount(sentence.text)
             out.append(RenderedSentence(
-                id: sentence.id, text: sentence.text, samples: samples,
+                id: sentence.id, expressionKey: sentence.expressionKey,
+                expression: expression, text: sentence.text, samples: samples,
                 trailingGap: gap, seconds: seconds,
                 peakDBFS: Audio.peakDBFS(samples),
                 wordsPerMinute: seconds > 0 ? Double(words) / seconds * 60 : 0))
@@ -168,14 +196,86 @@ public final class VoiceEngine: @unchecked Sendable {
         return out
     }
 
+    /// Whether this voice can be told how long each sound should last.
+    ///
+    /// The bundled voice's graph carries an extra input for it. A voice
+    /// somebody added themselves will not, and asks nothing of them: it renders
+    /// exactly as it always did, and the timing controls have nothing to
+    /// address rather than failing.
+    public var directsTiming: Bool {
+        ((try? session.inputNames()) ?? []).contains(Self.durationFactorsInput)
+    }
+
+    /// How this sentence should be read, if nobody has said otherwise.
+    ///
+    /// Empty when the setting is off or the voice cannot be told its timing, so
+    /// the caller never has to ask which of those is the case.
+    public func reading(for text: String, settings: SynthesisSettings,
+                        dictionary: [PronunciationEntry] = [],
+                        spoken: Set<String> = [],
+                        prosody: ProsodySettings = ProsodySettings()) -> [SoundDirection] {
+        guard settings.automaticDynamics, directsTiming else { return [] }
+        return Prosody.automaticDirections(
+            layout(for: text, settings: settings, dictionary: dictionary, lift: prosody.lift),
+            settings: prosody, spoken: spoken)
+    }
+
+    /// The tokens one sentence becomes, after any lift has moved its stress marks.
+    ///
+    /// Everything that needs a layout comes through here. A direction addresses
+    /// a token by index, so if the reading were planned against one phoneme
+    /// string and the audio rendered from another, every hold would land on the
+    /// wrong sound — and a lift changes the string.
+    private func layout(for text: String, settings: SynthesisSettings,
+                        dictionary: [PronunciationEntry], lift: Double) -> TokenLayout {
+        let phonemized = preparedPhonemes(for: text, settings: settings,
+                                          dictionary: dictionary).encoded
+        return tokenLayout(Phonology.restress(phonemized, lift: lift), settings: settings)
+    }
+
+    /// The words this sentence has now said, to carry into the next one.
+    public func spokenKeys(for text: String, settings: SynthesisSettings,
+                           dictionary: [PronunciationEntry] = []) -> Set<String> {
+        let phonemized = preparedPhonemes(for: text, settings: settings,
+                                          dictionary: dictionary).encoded
+        return Prosody.spokenKeys(tokenLayout(phonemized, settings: settings))
+    }
+
     /// One sentence, one inference call. Never less, never more.
     public func renderSentence(_ text: String, settings: SynthesisSettings,
-                               dictionary: [PronunciationEntry] = []) throws -> [Float] {
-        let phonemized = try phonemes(for: text, settings: settings,
-                                      dictionary: dictionary).phonemes
-        let ids = phonemeIDs(phonemized, settings: settings)
-        guard !ids.isEmpty else { return [] }
-        return try infer(ids: ids, settings: settings)
+                               dictionary: [PronunciationEntry] = [],
+                               directions: [SoundDirection] = [],
+                               lift: Double = 0) throws -> [Float] {
+        try renderTimed(text, settings: settings, dictionary: dictionary,
+                        directions: directions, lift: lift).samples
+    }
+
+    /// The same call, keeping what the model said about its own timing.
+    ///
+    /// The frame counts come back from the graph rather than from a recogniser
+    /// guessing at word boundaries, so an accent's level can be laid over the
+    /// exact samples of the sound it belongs to.
+    public func renderTimed(_ text: String, settings: SynthesisSettings,
+                            dictionary: [PronunciationEntry] = [],
+                            directions: [SoundDirection] = [], lift: Double = 0)
+        throws -> (samples: [Float], layout: TokenLayout, frames: [Float]) {
+        let layout = layout(for: text, settings: settings, dictionary: dictionary, lift: lift)
+        guard !layout.ids.isEmpty else { return ([], layout, []) }
+
+        // A vector of ones is not a no-op we hope for -- it is the patch's
+        // defining property, checked against the unpatched graph.
+        let factors = directsTiming ? TimingPlan.durationFactors(layout, directions) : []
+        let result = try infer(ids: layout.ids, settings: settings, factors: factors)
+
+        var samples = result.samples
+        if !result.frames.isEmpty, directions.contains(where: { $0.accentDB != 0 }) {
+            let total = result.frames.reduce(0) { $0 + Double($1) }
+            let hop = total > 0 ? Int((Double(samples.count) / total).rounded()) : 256
+            let gain = TimingPlan.accentEnvelope(layout, directions, frames: result.frames,
+                                                 samples: samples.count, hop: max(1, hop))
+            for i in samples.indices { samples[i] *= gain[i] }
+        }
+        return (samples, layout, result.frames)
     }
 
     /// The phonemes a sentence will actually be spoken from, with the
@@ -190,17 +290,112 @@ public final class VoiceEngine: @unchecked Sendable {
     public func phonemes(for text: String, settings: SynthesisSettings,
                          dictionary: [PronunciationEntry] = [])
         -> (phonemes: String, applied: Set<String>) {
-        // The one rewrite of the listener's words, and it is theirs to switch
-        // off. Applied before phonemizing rather than inside the phonemizer,
-        // so what the dictionary matches against is what was actually spoken.
-        let source = settings.spokenCurrency ? Script.spokenCurrency(text) : text
-        let base = (try? phonemizer.phonemize(source, dropFinalStop: settings.dropFinalFullStop)) ?? ""
-        guard !dictionary.isEmpty else { return (base, []) }
+        let prepared = preparedPhonemes(for: text, settings: settings, dictionary: dictionary)
+        return (prepared.display, prepared.applied)
+    }
+
+    private struct PreparedPhonemes {
+        var encoded: String
+        var display: String
+        var applied: Set<String>
+    }
+
+    // Private-use markers never reach the model as symbols. `phonemeIDs`
+    // turns them into extra PAD ids inside the one utterance.
+    private static let shortBeatMarker = "\u{E000}"
+    private static let mediumBeatMarker = "\u{E001}"
+    private static let longBeatMarker = "\u{E002}"
+    private static let focusBoundaryMarker = "\u{E003}"
+
+    private func preparedPhonemes(for text: String, settings: SynthesisSettings,
+                                  dictionary: [PronunciationEntry]) -> PreparedPhonemes {
+        let tokens = PerformanceMarkup.parse(text)
         var defaults: [String: String] = [:]
         for entry in dictionary {
             defaults[entry.key] = defaultPhonemes(for: entry.word)
         }
-        return PronunciationDictionary.apply(dictionary, to: base, defaults: defaults)
+
+        var encoded: [String] = []
+        var applied: Set<String> = []
+        var run: [PerformanceToken] = []
+
+        func appendRun(dropFinalStop: Bool) {
+            guard !run.isEmpty else { return }
+            var source = ""
+            var focusRanges: [Range<Int>] = []
+            for token in run {
+                guard case .text(let raw, let focused) = token else { continue }
+                let piece = settings.spokenCurrency ? Script.spokenCurrency(raw) : raw
+                let start = source.split(whereSeparator: \.isWhitespace).count
+                source += piece
+                if focused {
+                    let end = source.split(whereSeparator: \.isWhitespace).count
+                    if end > start { focusRanges.append(start ..< end) }
+                }
+            }
+
+            // A focus mark must not cause the unmarked words either side to be
+            // phonemized as separate mini-phrases. The clean run goes through
+            // espeak once; focus is then located by word-group ordinal.
+            var base = (try? phonemizer.phonemize(source, dropFinalStop: dropFinalStop)) ?? ""
+            if !dictionary.isEmpty {
+                let result = PronunciationDictionary.apply(dictionary, to: base,
+                                                           defaults: defaults)
+                base = result.phonemes
+                applied.formUnion(result.applied)
+            }
+            guard !base.isEmpty else { run = []; return }
+
+            var groups = base.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+            for range in focusRanges.reversed() {
+                guard range.lowerBound < groups.count else { continue }
+                let upper = min(range.upperBound, groups.count)
+                let focused = groups[range.lowerBound ..< upper].joined(separator: " ")
+                let marked = Self.focusBoundaryMarker + Self.promotingFocus(in: focused)
+                    + Self.focusBoundaryMarker
+                groups.replaceSubrange(range.lowerBound ..< upper, with: [marked])
+            }
+            encoded.append(groups.joined(separator: " "))
+            run = []
+        }
+
+        for token in tokens {
+            switch token {
+            case .beat(let beat):
+                appendRun(dropFinalStop: false)
+                switch beat {
+                case .short: encoded.append(Self.shortBeatMarker)
+                case .medium: encoded.append(Self.mediumBeatMarker)
+                case .long: encoded.append(Self.longBeatMarker)
+                }
+            case .text:
+                run.append(token)
+            }
+        }
+        appendRun(dropFinalStop: settings.dropFinalFullStop)
+
+        let value = encoded.joined(separator: " ")
+        var display = value.replacingOccurrences(of: Self.shortBeatMarker, with: "⟨short beat⟩")
+        display = display.replacingOccurrences(of: Self.mediumBeatMarker, with: "⟨beat⟩")
+        display = display.replacingOccurrences(of: Self.longBeatMarker, with: "⟨long beat⟩")
+        display = display.replacingOccurrences(of: Self.focusBoundaryMarker, with: "")
+        return PreparedPhonemes(encoded: value, display: display, applied: applied)
+    }
+
+    /// Promote secondary stress when available; otherwise give an unstressed
+    /// focused run a primary-stress cue. Already-primary words are left alone.
+    private static func promotingFocus(in phonemes: String) -> String {
+        if phonemes.contains("ˈ") { return phonemes }
+        if let secondary = phonemes.range(of: "ˌ") {
+            var out = phonemes
+            out.replaceSubrange(secondary, with: "ˈ")
+            return out
+        }
+        var groups = phonemes.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        if let index = groups.firstIndex(where: { $0.contains(where: \.isLetter) }) {
+            groups[index] = "ˈ" + groups[index]
+        }
+        return groups.joined(separator: " ")
     }
 
     /// What espeak says for a word on its own. Cached: a script re-rendered
@@ -232,27 +427,72 @@ public final class VoiceEngine: @unchecked Sendable {
     /// the sentence at the comma and splicing silence, which puts a cold start
     /// where a breath belongs and was heard as a stutter.
     func phonemeIDs(_ phonemized: String, settings: SynthesisSettings) -> [Int] {
+        tokenLayout(phonemized, settings: settings).ids
+    }
+
+    /// The same ids, with a parallel account of what each one is.
+    ///
+    /// Per-sound timing needs a factor for every token the model receives, in
+    /// the model's order, so it needs to know which token is the vowel and
+    /// which is the blank trailing it. Deriving both from one loop is the
+    /// point: a separate reconstruction of this layout could drift from the ids
+    /// actually sent, and a factor vector that has drifted holds the wrong sound.
+    func tokenLayout(_ phonemized: String, settings: SynthesisSettings) -> TokenLayout {
         let map = config.phoneme_id_map
         let pad = map["_"] ?? []
         var ids: [Int] = []
-        ids += map["^"] ?? []
-        ids += pad
-        for scalar in phonemized.unicodeScalars {
-            let key = String(scalar)
-            guard let id = map[key] else { continue }
-            ids += id
-            ids += pad
-            if settings.clausePads > 0,
-               let ch = key.first, Script.clauseMarks.contains(ch) {
-                for _ in 0 ..< settings.clausePads { ids += pad }
+        var slots: [TokenSlot] = []
+        var word = 0
+
+        func push(_ values: [Int], _ symbol: String, _ kind: TokenSlot.Kind, _ w: Int) {
+            for id in values {
+                slots.append(TokenSlot(index: ids.count, symbol: symbol, kind: kind, word: w))
+                ids.append(id)
             }
         }
-        for _ in 0 ..< settings.trailingPads { ids += pad }
-        ids += map["$"] ?? []
-        return ids
+
+        push(map["^"] ?? [], "^", .frame, -1)
+        push(pad, "^", .blank, -1)
+
+        for scalar in phonemized.unicodeScalars {
+            let key = String(scalar)
+            let directedPads: Int? = switch key {
+            case Self.shortBeatMarker: PerformanceBeat.short.pads
+            case Self.mediumBeatMarker: PerformanceBeat.medium.pads
+            case Self.longBeatMarker: PerformanceBeat.long.pads
+            case Self.focusBoundaryMarker: 2
+            default: nil
+            }
+            if let directedPads {
+                for _ in 0 ..< directedPads { push(pad, key, .directed, -1) }
+                continue
+            }
+            guard let id = map[key] else { continue }
+            // A space separates words and belongs to neither, so the count
+            // advances after it rather than handing the gap to the word that
+            // just ended.
+            let spoken = key != " "
+            push(id, key, .symbol, spoken ? word : -1)
+            push(pad, key, .blank, spoken ? word : -1)
+            if settings.clausePads > 0,
+               let ch = key.first, Script.clauseMarks.contains(ch) {
+                for _ in 0 ..< settings.clausePads { push(pad, key, .clause, -1) }
+            }
+            if !spoken { word += 1 }
+        }
+        for _ in 0 ..< settings.trailingPads { push(pad, "$", .trailing, -1) }
+        push(map["$"] ?? [], "$", .frame, -1)
+        return TokenLayout(ids: ids, slots: slots, words: word + 1)
     }
 
-    private func infer(ids: [Int], settings: SynthesisSettings) throws -> [Float] {
+    static let durationFactorsInput = "vf_duration_factors"
+    static let baseFramesOutput = "vf_base_frames"
+    /// The exporter's own name for the rounded durations, kept as the patch
+    /// found it rather than renamed.
+    static let actualFramesOutput = "/Ceil_output_0"
+
+    private func infer(ids: [Int], settings: SynthesisSettings,
+                       factors: [Float] = []) throws -> (samples: [Float], frames: [Float]) {
         let inputData = NSMutableData(bytes: ids.map { Int64($0) }, length: ids.count * 8)
         let inputTensor = try ORTValue(tensorData: inputData, elementType: .int64,
                                        shape: [1, NSNumber(value: ids.count)])
@@ -267,16 +507,31 @@ public final class VoiceEngine: @unchecked Sendable {
         let scalesData = NSMutableData(bytes: &scales, length: 12)
         let scalesTensor = try ORTValue(tensorData: scalesData, elementType: .float, shape: [3])
 
-        let outputs = try session.run(
-            withInputs: ["input": inputTensor, "input_lengths": lengthTensor, "scales": scalesTensor],
-            outputNames: ["output"], runOptions: nil)
+        var inputs = ["input": inputTensor, "input_lengths": lengthTensor,
+                      "scales": scalesTensor]
+        if !factors.isEmpty {
+            var values = factors
+            let factorData = NSMutableData(bytes: &values,
+                                           length: values.count * MemoryLayout<Float>.size)
+            inputs[Self.durationFactorsInput] = try ORTValue(
+                tensorData: factorData, elementType: .float,
+                shape: [1, 1, NSNumber(value: values.count)])
+        }
+
+        let available = Set(((try? session.outputNames()) ?? []))
+        var wanted: Set<String> = ["output"]
+        if available.contains(Self.actualFramesOutput) { wanted.insert(Self.actualFramesOutput) }
+
+        let outputs = try session.run(withInputs: inputs, outputNames: wanted, runOptions: nil)
         guard let tensor = outputs["output"], let data = try tensor.tensorData() as Data?
         else { throw VoiceEngineError.noOutput }
 
-        let count = data.count / MemoryLayout<Float>.size
-        return data.withUnsafeBytes { raw in
-            Array(raw.bindMemory(to: Float.self).prefix(count))
+        func floats(_ value: ORTValue?) -> [Float] {
+            guard let value, let data = try? value.tensorData() as Data else { return [] }
+            let count = data.count / MemoryLayout<Float>.size
+            return data.withUnsafeBytes { Array($0.bindMemory(to: Float.self).prefix(count)) }
         }
+        return (floats(tensor), floats(outputs[Self.actualFramesOutput]))
     }
 
     /// The IPA a piece of text will actually be spoken from.
@@ -303,9 +558,13 @@ public final class VoiceEngine: @unchecked Sendable {
     /// voice never learned, produces a word with a hole in it and no complaint.
     public func vocabularyCheck(_ phonemes: String) -> (kept: Int, dropped: [String]) {
         let map = config.phoneme_id_map
+        let audible = phonemes
+            .replacingOccurrences(of: "⟨short beat⟩", with: "")
+            .replacingOccurrences(of: "⟨beat⟩", with: "")
+            .replacingOccurrences(of: "⟨long beat⟩", with: "")
         var kept = 0
         var dropped: [String] = []
-        for scalar in phonemes.unicodeScalars {
+        for scalar in audible.unicodeScalars {
             let key = String(scalar)
             if map[key] != nil { kept += 1 }
             else if key != " " { dropped.append(key) }

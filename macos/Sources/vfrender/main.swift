@@ -8,6 +8,7 @@ import VoiceForgeTTS
 //   vfrender voices
 //   vfrender say <voice> "text"  [out.wav]
 //   vfrender calibrate <voice>
+//   vfrender timing <model.onnx>
 
 func fail(_ s: String) -> Never { FileHandle.standardError.write(Data((s + "\n").utf8)); exit(1) }
 
@@ -17,6 +18,7 @@ guard let command = args.first else {
     vfrender voices                       list the bundled voices
     vfrender say <voice> "text" [out.wav] render one take
     vfrender calibrate <voice>            measure what each mark is worth
+    vfrender timing <model.onnx>          can this model be told its own timing
     """)
     exit(0)
 }
@@ -33,6 +35,30 @@ case "voices":
     let rejected = VoiceEngine.installedProfiles().rejected
     for r in rejected { print("  refused: \(r.message)") }
     print("\nvoices folder: \(AppDirectories.voices.path)")
+
+case "timing":
+    // Asks a model file -- any model file, not whichever one this binary would
+    // have loaded -- whether it carries the timing input. The packaging gate
+    // points it at the copy inside the built app, because that is the one that
+    // ships and the one a stale staged copy would replace.
+    guard args.count >= 2 else { fail("usage: vfrender timing <model.onnx>") }
+    let model = URL(fileURLWithPath: args[1])
+    let config = URL(fileURLWithPath: args[1] + ".json")
+    for url in [model, config] where !FileManager.default.fileExists(atPath: url.path) {
+        fail("no such file: \(url.path)")
+    }
+    let probe = try VoiceEngine(profile: VoiceProfile(
+        name: model.deletingPathExtension().lastPathComponent,
+        modelURL: model, configURL: config, isBundled: false))
+    guard probe.directsTiming else {
+        fail("""
+             this model cannot be told its own timing: \(model.lastPathComponent)
+             it has no vf_duration_factors input, so the app would render every
+             sound at its predicted length and the dynamics would be silently
+             absent. patch it with experiments/piper-timing/extend_onnx.py
+             """)
+    }
+    print("directs timing: \(model.lastPathComponent)")
 
 case "say":
     guard args.count >= 3 else { fail("usage: vfrender say <voice> \"text\" [out.wav]") }
@@ -55,6 +81,7 @@ case "say":
     if let v = env["VF_CLAUSE_PADS"].flatMap(Int.init) { settings.clausePads = v }
     if let v = env["VF_SENTENCE_GAP"].flatMap(Double.init) { settings.sentenceGap = v }
     if let v = env["VF_PARAGRAPH_GAP"].flatMap(Double.init) { settings.paragraphGap = v }
+    if let v = env["VF_DYNAMICS"] { settings.automaticDynamics = (v as NSString).boolValue }
 
     let started = Date()
     let rendered = try engine.render(script, settings: settings)

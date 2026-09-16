@@ -14,6 +14,12 @@ import { defaultSettings, isWithinRanges, ranges } from "../core/settings.js";
 import { paceNote, noteFor } from "../core/voiceNotes.js";
 import { integratedLUFS, truePeakDBTP, loudnessTargets } from "../core/loudness.js";
 import * as P from "../core/pronunciation.js";
+import * as E from "../core/expression.js";
+import * as M from "../core/performanceMarkup.js";
+import * as PH from "../core/phonology.js";
+import * as T from "../core/timingPlan.js";
+import * as PR from "../core/prosody.js";
+import type { TokenLayout, TokenSlot } from "../main/engine.js";
 
 let passed = 0, failed = 0, suite = "";
 const setSuite = (s: string) => { suite = s; };
@@ -41,6 +47,14 @@ setSuite("script");
   expect(!s.sentences[0]!.endsParagraph, "the first does not");
   equal(s.sentences[2]!.clauseBreaks, 2, "clause breaks are counted");
   equal(S.wordCount(s), 8, "words are counted");
+  equal(s.sentences[0]!.expressionKey, "d4a88e5d:0",
+        "a sentence has the same cross-platform expression key");
+  equal(S.parseScript("Earlier. One two.").sentences[1]!.expressionKey,
+        s.sentences[0]!.expressionKey,
+        "and inserting an earlier sentence does not move its performance");
+  const repeated = S.parseScript("Again. Again.");
+  expect(repeated.sentences[0]!.expressionKey !== repeated.sentences[1]!.expressionKey,
+         "repeated copy can still carry two different performances");
 
   equal(S.parseScript("It costs $4.99 today. That is all.").sentences.length, 2,
         "a decimal point does not end a sentence");
@@ -101,6 +115,280 @@ setSuite("script");
         "a symbol not followed by a digit is left alone");
   equal(S.spokenCurrency("costs money"), "costs money", "text with no symbol is untouched");
   equal(S.spokenCurrency("$3.14159"), "3.14159 dollars", "more than two decimals is not a minor unit");
+}
+
+// ------------------------------------------------------ performance markup
+setSuite("performance markup");
+{
+  equal(M.parsePerformanceMarkup("Say *this* now."), [
+    { kind: "text", text: "Say ", focused: false },
+    { kind: "text", text: "this", focused: true },
+    { kind: "text", text: " now.", focused: false },
+  ], "asterisks mark one focused run without becoming spoken text");
+  equal(M.parsePerformanceMarkup("Wait [[beat:short]] then [[BEAT]] go [[beat:long]]."), [
+    { kind: "text", text: "Wait ", focused: false }, { kind: "beat", beat: "short" },
+    { kind: "text", text: " then ", focused: false }, { kind: "beat", beat: "medium" },
+    { kind: "text", text: " go ", focused: false }, { kind: "beat", beat: "long" },
+    { kind: "text", text: ".", focused: false },
+  ], "named beats parse case-insensitively");
+  equal(M.spokenText("I *really* mean it [[beat]] now."), "I really mean it now.",
+        "directions are absent from the spoken copy");
+  equal(M.performanceWordCount("I *really* mean it [[beat]] now."), 5,
+        "directions do not inflate the word count");
+  equal(M.parsePerformanceMarkup("A lone * stays literal."),
+        [{ kind: "text", text: "A lone * stays literal.", focused: false }],
+        "an unmatched focus mark never eats the rest of a sentence");
+  equal(M.spokenText("Two * three * four."), "Two * three * four.",
+        "spaced multiplication-style stars are not mistaken for focus");
+  equal(M.cueCounts("*One* [[beat]] and *two* [[beat:long]]."), { focus: 2, beats: 2 },
+        "focus runs and beats are counted for the take");
+}
+
+// --------------------------------------------------------------- expression
+setSuite("expression");
+{
+  const base = defaultSettings();
+  const none: E.SentenceExpression = { preset: "angry", intensity: 0, transitionSeconds: 0.18 };
+  equal(E.expressionSettings(base, none), base, "zero intensity leaves Piper neutral");
+  expect(E.expressionSettings(base, { ...none, preset: "happy", intensity: 1 }).lengthScale < base.lengthScale,
+         "happy starts from a quicker delivery");
+  expect(E.expressionSettings(base, { ...none, preset: "intimate", intensity: 1 }).lengthScale > base.lengthScale,
+         "intimate starts from a slower delivery");
+
+  const dry = Float32Array.from([0, 0.25, -0.25, 0.5, -0.5, 0]);
+  const neutral: E.ExpressionTone = {
+    lowShelfDB: 0, presenceDB: 0, highShelfDB: 0, outputDB: 0,
+  };
+  equal([...E.applyExpression(dry, neutral, neutral, 0.2, 22050)], [...dry],
+        "neutral tone is bit-for-bit transparent");
+  const shaped = E.applyExpression(dry, neutral,
+    E.toneFor({ preset: "angry", intensity: 1, transitionSeconds: 0.2 }), 0.2, 22050);
+  expect(shaped.length > 0, "expression treatment produces audio");
+  expect([...shaped].every(Number.isFinite), "and produces finite samples");
+  close(shaped[0]!, dry[0]!, 0.000001, "an expression transition begins in the preceding state");
+  const sustained = Float32Array.from({ length: 4000 }, (_, i) => Math.sin(i * 0.1) * 0.2);
+  const safe = E.applyExpression(sustained, neutral,
+    E.toneFor({ ...none, preset: "happy", intensity: 1 }), 0, 22050);
+  equal(safe.length, sustained.length, "linear tone shaping cannot warp the spoken contour");
+  expect(Math.max(...safe.map(Math.abs)) < 0.5, "the treatment has safe headroom");
+  // A sample peak below zero did not detect the old waveshaper distortion.
+  // Linear processing must give the same result before/after scaling input.
+  for (const rate of [22050, 48000]) for (const preset of E.expressionPresets) {
+    const tone = E.toneFor({ preset, intensity: 1, transitionSeconds: 0.02 });
+    const input = Float32Array.from({ length: 4096 }, (_, i) =>
+      0.35 * Math.sin(i * 0.13) + 0.2 * Math.sin(i * 1.37));
+    const full = E.applyExpression(input, neutral, tone, 0.02, rate);
+    const half = E.applyExpression(input.map(v => v * 0.5), neutral, tone, 0.02, rate);
+    expect(full.length === input.length && full.every((v, i) =>
+      Number.isFinite(v) && Math.abs(v * 0.5 - half[i]!) < 1e-6),
+      `${preset} at ${rate} preserves length and amplitude linearity`);
+  }
+}
+
+// ---------------------------------------------------------------- phonology
+setSuite("phonology");
+{
+  equal(PH.phonemeClass("oʊ"[0]!), "vowel", "a diphthong's first half is a vowel");
+  equal(PH.phonemeClass("ʊ"), "vowel", "and so is its second");
+  equal(PH.phonemeClass("ː"), "vowelExtension", "the length mark is pure duration");
+  equal(PH.phonemeClass("l"), "sonorant", "a liquid holds");
+  equal(PH.phonemeClass("z"), "voicedFricative", "voiced friction holds less well");
+  equal(PH.phonemeClass("s"), "voicelessFricative", "a hiss barely at all");
+  equal(PH.phonemeClass("t"), "plosive", "and a stop not at all");
+  equal(PH.phonemeClass("ˈ"), "marker", "stress is a mark, not a sound");
+  equal(PH.phonemeClass(" "), "boundary", "an unlisted symbol is never stretched");
+  equal(PH.phonemeClass(" "), "boundary", "nor is one nobody anticipated");
+  // The rejection this whole class map exists to encode.
+  equal(PH.susceptibility.plosive, 0, "a plosive can never be held");
+  expect(PH.susceptibility.vowel > PH.susceptibility.sonorant
+    && PH.susceptibility.sonorant > PH.susceptibility.voicedFricative
+    && PH.susceptibility.voicedFricative > PH.susceptibility.voicelessFricative
+    && PH.susceptibility.voicelessFricative > PH.susceptibility.plosive,
+    "and the order runs from the vowel down to the stop");
+  for (const c of PH.phonemeClasses) {
+    expect(PH.susceptibility[c] >= 0 && PH.susceptibility[c] <= 1,
+           `${c} takes a sensible share of a stretch`);
+  }
+}
+
+// -------------------------------------------------------------- timing plan
+setSuite("timing plan");
+{
+  // The engine's layout, by hand, so this suite still never loads a model:
+  // every symbol is followed by the blank that carries its release.
+  const layout = (phonemes: string): TokenLayout => {
+    const slots: TokenSlot[] = [];
+    let word = 0, index = 0;
+    const push = (symbol: string, kind: TokenSlot["kind"], w: number) =>
+      slots.push({ index: index++, symbol, kind, word: w });
+    push("^", "frame", -1); push("^", "blank", -1);
+    for (const ch of [...phonemes]) {
+      const spoken = ch !== " ";
+      push(ch, "symbol", spoken ? word : -1);
+      push(ch, "blank", spoken ? word : -1);
+      if (!spoken) word++;
+    }
+    push("$", "frame", -1);
+    return { ids: slots.map(() => 0), slots, words: word + 1 };
+  };
+
+  const stole = layout("stˈoʊl");
+  equal(T.wordPhonemes(stole, 0), "stˈoʊl", "a word reads back as its own IPA");
+  equal(T.nucleus(stole, 0).filter(s => s.kind === "symbol").map(s => s.symbol).join(""),
+        "oʊ", "an accent lands on the vowel after the stress mark");
+  equal(T.nucleus(layout("juː"), 0).filter(s => s.kind === "symbol").map(s => s.symbol).join(""),
+        "uː", "an unmarked one-syllable word still has a nucleus");
+  equal(T.nucleus(layout("stl"), 0), [], "a word with no vowel has none to find");
+
+  const held = T.durationFactors(stole, [{ word: 0, stretch: 2, accent: 0, accentDB: 0 }]);
+  const at = (symbol: string, kind: TokenSlot["kind"] = "symbol") =>
+    held[stole.slots.find(s => s.symbol === symbol && s.kind === kind)!.index]!;
+  close(at("s"), 1.12, 1e-6, "a held word barely moves its hiss");
+  equal(at("t"), 1, "and does not move its stop at all");
+  equal(at("t", "blank"), 1, "nor the closure the stop trails");
+  equal(at("o"), 2, "the vowel takes the whole direction");
+  equal(at("o", "blank"), 2, "and so does the blank carrying its release");
+  close(at("l"), 1.55, 1e-6, "the liquid takes rather more than half");
+  equal(held[0]!, 1, "nothing outside the word is touched");
+  equal(held[held.length - 1]!, 1, "at either end");
+
+  // The rejected "ssttoollee": a uniform stretch would move every one of these.
+  const uniform = [...held].filter(v => v !== 1).length;
+  equal(uniform, 8, "only the sounds that can be held are held");
+
+  const accented = T.durationFactors(stole, [{ word: 0, stretch: 1, accent: 0.5, accentDB: 0 }]);
+  expect(accented[stole.slots.find(s => s.symbol === "o")!.index]! > 1
+    && accented[stole.slots.find(s => s.symbol === "l")!.index]! === 1,
+    "an accent alone moves the nucleus and nothing else in the word");
+
+  const two = layout("juː stˈoʊl");
+  const one = T.durationFactors(two, [{ word: 1, stretch: 2, accent: 0, accentDB: 0 }]);
+  expect(T.wordSlots(two, 0).every(s => one[s.index] === 1),
+         "directing one word leaves its neighbour exactly alone");
+
+  for (const stretch of [0.25, 1, 4]) {
+    const extreme = T.durationFactors(stole, [{ word: 0, stretch, accent: 3, accentDB: 0 }]);
+    expect([...extreme].every(v => v >= T.factorRange.min && v <= T.factorRange.max),
+           `a stretch of ${stretch} still lands inside the graph's range`);
+  }
+
+  equal(T.durationFactors(stole, []), new Float32Array(stole.ids.length).fill(1),
+        "no direction is a vector of ones, which the model must render unchanged");
+
+  // Alignment comes from the model's own reported frames, not from a guess.
+  equal(T.sampleBounds([2, 3, 1], 256), [0, 512, 1280, 1536], "token bounds follow the frames");
+  close(T.addedSeconds([2, 3], [2, 5], 256, 22050), 0.0232, 1e-4, "added time is reported, not assumed");
+
+  const hop = 256, perToken = 2;
+  const frames = new Array(stole.ids.length).fill(perToken);
+  const samples = stole.ids.length * perToken * hop;
+  const ceiling = Math.pow(10, 4.5 / 20);
+  const gain = T.accentEnvelope(stole, [{ word: 0, stretch: 1, accent: 0, accentDB: 4.5 }],
+                                frames, samples, hop);
+  equal(gain.length, samples, "the lift covers the whole take");
+  expect([...gain].every(v => v >= 1 && v <= ceiling + 1e-6),
+         "an accent lift stays within the dB it was asked for");
+  equal(gain[0]!, 1, "and starts from unity rather than stepping");
+
+  // The fix that matters: full lift on the vowel, not on the word's midpoint.
+  const span = (slots: TokenSlot[]) => {
+    const bounds = T.sampleBounds(frames, hop);
+    return [bounds[slots[0]!.index]!, bounds[slots[slots.length - 1]!.index + 1]!] as const;
+  };
+  const [coreStart, coreEnd] = span(T.nucleus(stole, 0));
+  const mid = Math.floor((coreStart + coreEnd) / 2);
+  close(gain[mid]!, ceiling, 1e-6, "the accent is at full level across its nucleus");
+  const stop = stole.slots.find(s => s.symbol === "t" && s.kind === "symbol")!;
+  expect(gain[T.sampleBounds(frames, hop)[stop.index]!]! < ceiling,
+         "and not at full level on the stop in front of it");
+  expect([...gain].every((v, i) => i === 0 || Math.abs(v - gain[i - 1]!) < 0.01),
+         "the lift never steps, so nothing clicks");
+  const quiet = T.accentEnvelope(stole, [{ word: 0, stretch: 1, accent: 0, accentDB: 0 }],
+                                 frames, samples, hop);
+  expect([...quiet].every(v => v === 1), "no lift asked for is no lift applied");
+
+  equal(T.fullAccentDB, 6, "a full accent is the level that was chosen by ear");
+  equal(T.accentedDirection(0, 1, 1).accentDB, T.fullAccentDB,
+        "one dial at full gives that level");
+  equal(T.accentedDirection(0, 1, 0).accentDB, 0, "and at nothing gives none");
+  expect(T.accentedDirection(0, 1, 0.5).accent > 0
+    && T.accentedDirection(0, 1, 0.5).accentDB > 0,
+    "hold and level move together rather than separately");
+  equal(T.accentedDirection(0, 1, 4).accentDB, T.fullAccentDB,
+        "and a strength past full is held at full");
+}
+
+// ------------------------------------------------------------------ prosody
+setSuite("prosody");
+{
+  // Built by hand from what espeak really emits for these sentences, so the
+  // suite still never loads a model.
+  const stream = (phonemes: string): TokenLayout => {
+    const slots: TokenSlot[] = [];
+    let word = 0, index = 0;
+    const push = (symbol: string, kind: TokenSlot["kind"], w: number) =>
+      slots.push({ index: index++, symbol, kind, word: w });
+    push("^", "frame", -1); push("^", "blank", -1);
+    for (const ch of [...phonemes]) {
+      const spoken = ch !== " ";
+      push(ch, "symbol", spoken ? word : -1);
+      push(ch, "blank", spoken ? word : -1);
+      if (!spoken) word++;
+    }
+    push("$", "frame", -1);
+    return { ids: slots.map(() => 0), slots, words: word + 1 };
+  };
+
+  // "The cat sat on the mat in the sun." — note nine written words arrive as
+  // seven groups, because espeak runs "on the" and "in the" together.
+  const cat = stream("ðə kˈæt sˈæt ɔnðə mˈæt ɪnðə sˈʌn");
+  const groups = PR.prosodicGroups(cat);
+  equal(groups.length, 7, "a sentence is read as the groups espeak made, not its written words");
+  equal(groups.map(g => g.prominence),
+        ["reduced", "accented", "accented", "reduced", "accented", "reduced", "accented"],
+        "espeak's own stress marks say which words carry weight");
+
+  const plan = PR.automaticDirections(cat);
+  const on = (word: number) => plan.find(d => d.word === word);
+  expect(on(6)!.accentDB > 0, "the point of the phrase lands on its last content word");
+  expect(plan.filter(d => d.accentDB > 0).length === 1,
+         "and only there — one phrase makes one point");
+  expect(on(0)!.stretch < 1 && on(3)!.stretch < 1 && on(5)!.stretch < 1,
+         "the unstressed words give way, so the beats come out uneven");
+  const reduced = new Set(groups.filter(g => g.prominence === "reduced").map(g => g.word));
+  expect(plan.filter(d => d.stretch < 1).every(d => reduced.has(d.word)),
+         "and only they do — a word carrying weight is never compressed");
+  expect(!plan.some(d => d.word === 1), "a content word that is not the point is left alone");
+
+  // Two clauses, so two points rather than one.
+  const cold = stream("ɪt wʌz kˈoʊld, ɪt wʌz lˈeɪt, ænd nˈoʊbɑːdi kˈeɪm");
+  const twice = PR.automaticDirections(cold);
+  equal(twice.filter(d => d.accentDB > 0).length, 3, "each clause makes its own point");
+  expect(twice.find(d => d.word === 2)!.stretch > 1,
+         "and a phrase settles at the clause mark");
+
+  // The same word twice in a paragraph should not be hit twice.
+  const seen = PR.spokenKeys(stream("ðə ɡˈɑːɹdən"));
+  expect(seen.has("ɡɑːɹdən"), "a word is remembered without its stress mark");
+  const fresh = PR.automaticDirections(stream("ɪn ðə ɡˈɑːɹdən"));
+  const again = PR.automaticDirections(stream("ɪn ðə ɡˈɑːɹdən"), PR.defaultProsody(), seen);
+  expect(again.find(d => d.word === 2)!.accentDB < fresh.find(d => d.word === 2)!.accentDB,
+         "hearing it a second time steps back");
+
+  // Every dial has to be able to turn the rule off it controls.
+  const flat = PR.automaticDirections(cat,
+    { ...PR.defaultProsody(), focus: 0, phraseFinal: 0, contrast: 0 });
+  equal(flat, [], "turned all the way down it directs nothing at all");
+  const noContrast = PR.automaticDirections(cat, { ...PR.defaultProsody(), contrast: 0 });
+  expect(noContrast.every(d => d.stretch >= 1), "and contrast alone can be turned off");
+
+  equal(PR.automaticDirections(stream("")), [], "an empty sentence is not a crash");
+  equal(PR.automaticDirections(stream("ðə ɐ")).filter(d => d.accentDB > 0).length, 0,
+        "a phrase with nothing to accent makes no point rather than inventing one");
+  for (const d of PR.automaticDirections(cold)) {
+    expect(d.stretch >= 0.5 && d.stretch <= 2.5 && d.accentDB <= T.fullAccentDB,
+           `an automatic direction on ${d.word} stays inside what was approved by ear`);
+  }
 }
 
 // ----------------------------------------------------------------- settings

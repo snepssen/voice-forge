@@ -4,3 +4,7 @@
 # Bytecode from docs/build.py importing docs/page.py.
 __pycache__/
 *.pyc
+
+# Stray build and session artifacts that land at the repository root.
+/.build/
+:memory:.ses

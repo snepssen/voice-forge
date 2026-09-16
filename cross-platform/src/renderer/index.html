@@ -46,7 +46,7 @@
     <section class="panel">
       <h2>Script <span class="trailing" id="scriptSummary"></span></h2>
       <textarea id="script" spellcheck="false"></textarea>
-      <p class="note">A blank line starts a new paragraph. Each sentence becomes one call to the model — never more, never less.</p>
+      <p class="note">A blank line starts a paragraph; every sentence remains one model call. Put <code>*asterisks*</code> around words for phrase focus. Add <code>[[beat:short]]</code>, <code>[[beat]]</code>, or <code>[[beat:long]]</code> for an authored breath inside that same call.</p>
       <div class="divider"></div>
       <label class="check"><input type="checkbox" id="spokenCurrency"> Read currency the way it is said</label>
       <p class="note" id="currencyNote"></p>
@@ -125,7 +125,7 @@
     <header>
       <div>
         <h2>Pronunciation</h2>
-        <p class="note">What you type is handed straight to the model — it speaks IPA, so this is not a translation step.</p>
+        <p class="note">Edit the IPA directly, or type an ordinary “sounds like” respelling under an entry and convert it. The result stays visible and editable before it reaches the model.</p>
       </div>
       <button class="go" id="dictDone">Done</button>
     </header>

@@ -50,6 +50,14 @@ do {
     c.expect(!s.sentences[0].endsParagraph, "the first does not")
     c.equal(s.sentences[2].clauseBreaks, 2, "clause breaks are counted")
     c.equal(s.wordCount, 8, "words are counted")
+    c.equal(s.sentences[0].expressionKey, "d4a88e5d:0",
+            "a sentence has the same cross-platform expression key")
+    c.equal(Script.parse("Earlier. One two.").sentences[1].expressionKey,
+            s.sentences[0].expressionKey,
+            "and inserting an earlier sentence does not move its performance")
+    let repeated = Script.parse("Again. Again.")
+    c.expect(repeated.sentences[0].expressionKey != repeated.sentences[1].expressionKey,
+             "repeated copy can still carry two different performances")
 
     // The one case that bites in written-for-speech copy.
     let money = Script.parse("It costs $4.99 today. That is all.")
@@ -141,6 +149,297 @@ do {
     c.equal(Script.spokenCurrency("costs money"), "costs money", "text with no symbol is untouched")
     c.equal(Script.spokenCurrency("$3.14159"), "3.14159 dollars",
             "more than two decimal places is not a minor unit")
+}
+
+// ------------------------------------------------------ performance markup
+c.suite("performance markup")
+do {
+    c.equal(PerformanceMarkup.parse("Say *this* now."), [
+        .text("Say ", focused: false), .text("this", focused: true),
+        .text(" now.", focused: false),
+    ], "asterisks mark one focused run without becoming spoken text")
+    c.equal(PerformanceMarkup.parse("Wait [[beat:short]] then [[BEAT]] go [[beat:long]]."), [
+        .text("Wait ", focused: false), .beat(.short),
+        .text(" then ", focused: false), .beat(.medium),
+        .text(" go ", focused: false), .beat(.long), .text(".", focused: false),
+    ], "named beats parse case-insensitively")
+    c.equal(PerformanceMarkup.spokenText("I *really* mean it [[beat]] now."),
+            "I really mean it now.", "directions are absent from the spoken copy")
+    c.equal(PerformanceMarkup.wordCount("I *really* mean it [[beat]] now."), 5,
+            "directions do not inflate the word count")
+    c.equal(PerformanceMarkup.parse("A lone * stays literal."),
+            [.text("A lone * stays literal.", focused: false)],
+            "an unmatched focus mark never eats the rest of a sentence")
+    c.equal(PerformanceMarkup.spokenText("Two * three * four."), "Two * three * four.",
+            "spaced multiplication-style stars are not mistaken for focus")
+    let counts = PerformanceMarkup.cueCounts("*One* [[beat]] and *two* [[beat:long]].")
+    c.equal(counts.focus, 2, "focus runs are counted for the take")
+    c.equal(counts.beats, 2, "as are beats")
+}
+
+// --------------------------------------------------------------- expression
+c.suite("expression")
+do {
+    let base = SynthesisSettings()
+    let none = SentenceExpression(preset: .angry, intensity: 0)
+    c.equal(none.applying(to: base), base, "zero intensity leaves Piper neutral")
+    c.expect(SentenceExpression(preset: .happy).applying(to: base).lengthScale < base.lengthScale,
+             "happy starts from a quicker delivery")
+    c.expect(SentenceExpression(preset: .intimate).applying(to: base).lengthScale > base.lengthScale,
+             "intimate starts from a slower delivery")
+
+    let dry: [Float] = [0, 0.25, -0.25, 0.5, -0.5, 0]
+    c.equal(ExpressionDSP.process(dry, from: .init(), to: .init(),
+                                  transitionSeconds: 0.2, sampleRate: 22_050), dry,
+            "neutral tone is bit-for-bit transparent")
+    let shaped = ExpressionDSP.process(dry, from: .init(),
+                                       to: SentenceExpression(preset: .angry).tone,
+                                       transitionSeconds: 0.2, sampleRate: 22_050)
+    c.expect(!shaped.isEmpty, "expression treatment produces audio")
+    c.expect(shaped.allSatisfy(\.isFinite), "and produces finite samples")
+    c.close(Double(shaped[0]), Double(dry[0]), 0.000_001,
+            "an expression transition begins in the preceding state")
+    let sustained = (0 ..< 4_000).map { Float(sin(Double($0) * 0.1) * 0.2) }
+    let safe = ExpressionDSP.process(sustained, from: .init(),
+                                     to: SentenceExpression(preset: .happy).tone,
+                                     transitionSeconds: 0, sampleRate: 22_050)
+    c.equal(safe.count, sustained.count, "linear tone shaping cannot warp the spoken contour")
+    c.expect((safe.map { abs($0) }.max() ?? 0) < 0.5, "the treatment has safe headroom")
+    for rate in [22_050.0, 48_000.0] {
+        for preset in ExpressionPreset.allCases {
+            let input: [Float] = (0 ..< 4_096).map { i in
+                Float(0.35 * sin(Double(i) * 0.13) + 0.2 * sin(Double(i) * 1.37))
+            }
+            let tone = SentenceExpression(preset: preset).tone
+            let full = ExpressionDSP.process(input, from: .init(), to: tone,
+                                             transitionSeconds: 0.02, sampleRate: rate)
+            let half = ExpressionDSP.process(input.map { $0 * 0.5 }, from: .init(), to: tone,
+                                             transitionSeconds: 0.02, sampleRate: rate)
+            c.expect(full.count == input.count && zip(full, half).allSatisfy {
+                $0.isFinite && abs($0 * 0.5 - $1) < 0.000_001
+            }, "\(preset) at \(rate) preserves length and amplitude linearity")
+        }
+    }
+}
+
+// ---------------------------------------------------------------- phonology
+c.suite("phonology")
+do {
+    c.equal(Phonology.phonemeClass("o"), .vowel, "a diphthong's first half is a vowel")
+    c.equal(Phonology.phonemeClass("ʊ"), .vowel, "and so is its second")
+    c.equal(Phonology.phonemeClass("ː"), .vowelExtension, "the length mark is pure duration")
+    c.equal(Phonology.phonemeClass("l"), .sonorant, "a liquid holds")
+    c.equal(Phonology.phonemeClass("z"), .voicedFricative, "voiced friction holds less well")
+    c.equal(Phonology.phonemeClass("s"), .voicelessFricative, "a hiss barely at all")
+    c.equal(Phonology.phonemeClass("t"), .plosive, "and a stop not at all")
+    c.equal(Phonology.phonemeClass("ˈ"), .marker, "stress is a mark, not a sound")
+    c.equal(Phonology.phonemeClass(" "), .boundary, "an unlisted symbol is never stretched")
+    c.equal(Phonology.phonemeClass("\u{0000}"), .boundary, "nor is one nobody anticipated")
+    // The rejection this whole class map exists to encode.
+    c.equal(PhonemeClass.plosive.susceptibility, 0, "a plosive can never be held")
+    c.expect(PhonemeClass.vowel.susceptibility > PhonemeClass.sonorant.susceptibility
+             && PhonemeClass.sonorant.susceptibility > PhonemeClass.voicedFricative.susceptibility
+             && PhonemeClass.voicedFricative.susceptibility > PhonemeClass.voicelessFricative.susceptibility
+             && PhonemeClass.voicelessFricative.susceptibility > PhonemeClass.plosive.susceptibility,
+             "and the order runs from the vowel down to the stop")
+    for klass in PhonemeClass.allCases {
+        c.expect(klass.susceptibility >= 0 && klass.susceptibility <= 1,
+                 "\(klass.rawValue) takes a sensible share of a stretch")
+    }
+}
+
+// -------------------------------------------------------------- timing plan
+c.suite("timing plan")
+do {
+    // The engine's layout, by hand, so this suite still never loads a model:
+    // every symbol is followed by the blank that carries its release.
+    func layout(_ phonemes: String) -> TokenLayout {
+        var slots: [TokenSlot] = []
+        var word = 0, index = 0
+        func push(_ symbol: String, _ kind: TokenSlot.Kind, _ w: Int) {
+            slots.append(TokenSlot(index: index, symbol: symbol, kind: kind, word: w))
+            index += 1
+        }
+        push("^", .frame, -1); push("^", .blank, -1)
+        for scalar in phonemes.unicodeScalars {
+            let key = String(scalar)
+            let spoken = key != " "
+            push(key, .symbol, spoken ? word : -1)
+            push(key, .blank, spoken ? word : -1)
+            if !spoken { word += 1 }
+        }
+        push("$", .frame, -1)
+        return TokenLayout(ids: slots.map { _ in 0 }, slots: slots, words: word + 1)
+    }
+
+    let stole = layout("stˈoʊl")
+    c.equal(TimingPlan.wordPhonemes(stole, word: 0), "stˈoʊl", "a word reads back as its own IPA")
+    c.equal(TimingPlan.nucleus(stole, word: 0).filter { $0.kind == .symbol }
+                .map(\.symbol).joined(), "oʊ",
+            "an accent lands on the vowel after the stress mark")
+    c.equal(TimingPlan.nucleus(layout("juː"), word: 0).filter { $0.kind == .symbol }
+                .map(\.symbol).joined(), "uː",
+            "an unmarked one-syllable word still has a nucleus")
+    c.equal(TimingPlan.nucleus(layout("stl"), word: 0), [], "a word with no vowel has none to find")
+
+    let held = TimingPlan.durationFactors(stole, [SoundDirection(word: 0, stretch: 2)])
+    func at(_ symbol: String, _ kind: TokenSlot.Kind = .symbol) -> Double {
+        Double(held[stole.slots.first { $0.symbol == symbol && $0.kind == kind }!.index])
+    }
+    c.close(at("s"), 1.12, 0.000_001, "a held word barely moves its hiss")
+    c.equal(at("t"), 1, "and does not move its stop at all")
+    c.equal(at("t", .blank), 1, "nor the closure the stop trails")
+    c.equal(at("o"), 2, "the vowel takes the whole direction")
+    c.equal(at("o", .blank), 2, "and so does the blank carrying its release")
+    c.close(at("l"), 1.55, 0.000_001, "the liquid takes rather more than half")
+    c.equal(held.first!, 1, "nothing outside the word is touched")
+    c.equal(held.last!, 1, "at either end")
+
+    // The rejected "ssttoollee": a uniform stretch would move every one of these.
+    c.equal(held.filter { $0 != 1 }.count, 8, "only the sounds that can be held are held")
+
+    let accented = TimingPlan.durationFactors(stole, [SoundDirection(word: 0, accent: 0.5)])
+    c.expect(accented[stole.slots.first { $0.symbol == "o" }!.index] > 1
+             && accented[stole.slots.first { $0.symbol == "l" }!.index] == 1,
+             "an accent alone moves the nucleus and nothing else in the word")
+
+    let two = layout("juː stˈoʊl")
+    let one = TimingPlan.durationFactors(two, [SoundDirection(word: 1, stretch: 2)])
+    c.expect(TimingPlan.wordSlots(two, word: 0).allSatisfy { one[$0.index] == 1 },
+             "directing one word leaves its neighbour exactly alone")
+
+    for stretch in [0.25, 1.0, 4.0] {
+        let extreme = TimingPlan.durationFactors(stole,
+            [SoundDirection(word: 0, stretch: stretch, accent: 3)])
+        c.expect(extreme.allSatisfy { TimingPlan.factorRange.contains(Double($0)) },
+                 "a stretch of \(stretch) still lands inside the graph's range")
+    }
+
+    c.equal(TimingPlan.durationFactors(stole, []),
+            [Float](repeating: 1, count: stole.ids.count),
+            "no direction is a vector of ones, which the model must render unchanged")
+
+    // Alignment comes from the model's own reported frames, not from a guess.
+    c.equal(TimingPlan.sampleBounds([2, 3, 1], hop: 256), [0, 512, 1280, 1536],
+            "token bounds follow the frames")
+    c.close(TimingPlan.addedSeconds(base: [2, 3], actual: [2, 5], hop: 256, rate: 22_050),
+            0.0232, 0.0001, "added time is reported, not assumed")
+
+    let hop = 256, perToken = 2
+    let frames = [Float](repeating: Float(perToken), count: stole.ids.count)
+    let samples = stole.ids.count * perToken * hop
+    let ceiling = pow(10.0, 4.5 / 20)
+    let gain = TimingPlan.accentEnvelope(stole, [SoundDirection(word: 0, accentDB: 4.5)],
+                                         frames: frames, samples: samples, hop: hop)
+    c.equal(gain.count, samples, "the lift covers the whole take")
+    c.expect(gain.allSatisfy { Double($0) >= 1 && Double($0) <= ceiling + 0.000_001 },
+             "an accent lift stays within the dB it was asked for")
+    c.equal(gain.first!, 1, "and starts from unity rather than stepping")
+
+    // The fix that matters: full lift on the vowel, not on the word's midpoint.
+    let bounds = TimingPlan.sampleBounds(frames, hop: hop)
+    let core = TimingPlan.nucleus(stole, word: 0)
+    let mid = (bounds[core.first!.index] + bounds[core.last!.index + 1]) / 2
+    c.close(Double(gain[mid]), ceiling, 0.000_001,
+            "the accent is at full level across its nucleus")
+    let stop = stole.slots.first { $0.symbol == "t" && $0.kind == .symbol }!
+    c.expect(Double(gain[bounds[stop.index]]) < ceiling,
+             "and not at full level on the stop in front of it")
+    c.expect(zip(gain, gain.dropFirst()).allSatisfy { abs($0 - $1) < 0.01 },
+             "the lift never steps, so nothing clicks")
+    let quiet = TimingPlan.accentEnvelope(stole, [SoundDirection(word: 0)],
+                                          frames: frames, samples: samples, hop: hop)
+    c.expect(quiet.allSatisfy { $0 == 1 }, "no lift asked for is no lift applied")
+
+    c.equal(TimingPlan.fullAccentDB, 6, "a full accent is the level that was chosen by ear")
+    c.equal(TimingPlan.accented(word: 0, stretch: 1, strength: 1).accentDB,
+            TimingPlan.fullAccentDB, "one dial at full gives that level")
+    c.equal(TimingPlan.accented(word: 0, stretch: 1, strength: 0).accentDB, 0,
+            "and at nothing gives none")
+    c.expect(TimingPlan.accented(word: 0, stretch: 1, strength: 0.5).accent > 0
+             && TimingPlan.accented(word: 0, stretch: 1, strength: 0.5).accentDB > 0,
+             "hold and level move together rather than separately")
+    c.equal(TimingPlan.accented(word: 0, stretch: 1, strength: 4).accentDB,
+            TimingPlan.fullAccentDB, "and a strength past full is held at full")
+}
+
+// ------------------------------------------------------------------ prosody
+c.suite("prosody")
+do {
+    // Built by hand from what espeak really emits for these sentences, so the
+    // suite still never loads a model.
+    func stream(_ phonemes: String) -> TokenLayout {
+        var slots: [TokenSlot] = []
+        var word = 0, index = 0
+        func push(_ symbol: String, _ kind: TokenSlot.Kind, _ w: Int) {
+            slots.append(TokenSlot(index: index, symbol: symbol, kind: kind, word: w))
+            index += 1
+        }
+        push("^", .frame, -1); push("^", .blank, -1)
+        for scalar in phonemes.unicodeScalars {
+            let key = String(scalar)
+            let spoken = key != " "
+            push(key, .symbol, spoken ? word : -1)
+            push(key, .blank, spoken ? word : -1)
+            if !spoken { word += 1 }
+        }
+        push("$", .frame, -1)
+        return TokenLayout(ids: slots.map { _ in 0 }, slots: slots, words: word + 1)
+    }
+
+    // "The cat sat on the mat in the sun." -- note nine written words arrive as
+    // seven groups, because espeak runs "on the" and "in the" together.
+    let cat = stream("ðə kˈæt sˈæt ɔnðə mˈæt ɪnðə sˈʌn")
+    let groups = Prosody.prosodicGroups(cat)
+    c.equal(groups.count, 7, "a sentence is read as the groups espeak made, not its written words")
+    c.equal(groups.map(\.prominence),
+            [.reduced, .accented, .accented, .reduced, .accented, .reduced, .accented],
+            "espeak's own stress marks say which words carry weight")
+
+    let plan = Prosody.automaticDirections(cat)
+    func on(_ word: Int) -> SoundDirection? { plan.first { $0.word == word } }
+    c.expect(on(6)!.accentDB > 0, "the point of the phrase lands on its last content word")
+    c.equal(plan.filter { $0.accentDB > 0 }.count, 1,
+            "and only there — one phrase makes one point")
+    c.expect(on(0)!.stretch < 1 && on(3)!.stretch < 1 && on(5)!.stretch < 1,
+             "the unstressed words give way, so the beats come out uneven")
+    let reduced = Set(groups.filter { $0.prominence == .reduced }.map(\.word))
+    c.expect(plan.filter { $0.stretch < 1 }.allSatisfy { reduced.contains($0.word) },
+             "and only they do — a word carrying weight is never compressed")
+    c.expect(!plan.contains { $0.word == 1 },
+             "a content word that is not the point is left alone")
+
+    // Two clauses, so two points rather than one.
+    let cold = stream("ɪt wʌz kˈoʊld, ɪt wʌz lˈeɪt, ænd nˈoʊbɑːdi kˈeɪm")
+    let twice = Prosody.automaticDirections(cold)
+    c.equal(twice.filter { $0.accentDB > 0 }.count, 3, "each clause makes its own point")
+    c.expect(twice.first { $0.word == 2 }!.stretch > 1,
+             "and a phrase settles at the clause mark")
+
+    // The same word twice in a paragraph should not be hit twice.
+    let seen = Prosody.spokenKeys(stream("ðə ɡˈɑːɹdən"))
+    c.expect(seen.contains("ɡɑːɹdən"), "a word is remembered without its stress mark")
+    let fresh = Prosody.automaticDirections(stream("ɪn ðə ɡˈɑːɹdən"))
+    let again = Prosody.automaticDirections(stream("ɪn ðə ɡˈɑːɹdən"),
+                                            settings: ProsodySettings(), spoken: seen)
+    c.expect(again.first { $0.word == 2 }!.accentDB < fresh.first { $0.word == 2 }!.accentDB,
+             "hearing it a second time steps back")
+
+    // Every dial has to be able to turn off the rule it controls.
+    let flat = Prosody.automaticDirections(cat, settings: ProsodySettings(
+        focus: 0, phraseFinal: 0, deaccentRepeats: 0, contrast: 0))
+    c.equal(flat, [], "turned all the way down it directs nothing at all")
+    let noContrast = Prosody.automaticDirections(cat,
+        settings: ProsodySettings(contrast: 0))
+    c.expect(noContrast.allSatisfy { $0.stretch >= 1 }, "and contrast alone can be turned off")
+
+    c.equal(Prosody.automaticDirections(stream("")), [], "an empty sentence is not a crash")
+    c.equal(Prosody.automaticDirections(stream("ðə ɐ")).filter { $0.accentDB > 0 }.count, 0,
+            "a phrase with nothing to accent makes no point rather than inventing one")
+    for d in Prosody.automaticDirections(cold) {
+        c.expect(TimingPlan.factorRange.contains(d.stretch) && d.accentDB <= TimingPlan.fullAccentDB,
+                 "an automatic direction on \(d.word) stays inside what was approved by ear")
+    }
 }
 
 // ------------------------------------------------------------------ settings

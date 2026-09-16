@@ -20,6 +20,9 @@ public struct Script: Equatable, Sendable {
     /// One sentence: the smallest thing that gets its own inference call.
     public struct Sentence: Equatable, Sendable, Identifiable {
         public var id: Int
+        /// Stable across edits elsewhere in the script, so a performance
+        /// assignment stays with its sentence rather than with an ordinal row.
+        public var expressionKey: String
         public var text: String
         /// Which paragraph it belongs to. A paragraph break is a longer pause
         /// than a full stop and the listener can set them separately.
@@ -33,9 +36,9 @@ public struct Script: Equatable, Sendable {
         /// carries more pause budget than another.
         public var clauseBreaks: Int
 
-        public init(id: Int, text: String, paragraph: Int, endsParagraph: Bool,
-                    terminator: String, clauseBreaks: Int) {
-            self.id = id; self.text = text; self.paragraph = paragraph
+        public init(id: Int, expressionKey: String = "", text: String, paragraph: Int,
+                    endsParagraph: Bool, terminator: String, clauseBreaks: Int) {
+            self.id = id; self.expressionKey = expressionKey; self.text = text; self.paragraph = paragraph
             self.endsParagraph = endsParagraph; self.terminator = terminator
             self.clauseBreaks = clauseBreaks
         }
@@ -46,7 +49,7 @@ public struct Script: Equatable, Sendable {
     public var isEmpty: Bool { sentences.isEmpty }
     public var paragraphCount: Int { (sentences.map(\.paragraph).max() ?? -1) + 1 }
     public var wordCount: Int {
-        sentences.reduce(0) { $0 + $1.text.split(whereSeparator: \.isWhitespace).count }
+        sentences.reduce(0) { $0 + PerformanceMarkup.wordCount($1.text) }
     }
 
     /// The marks this app treats as a clause break inside a sentence.
@@ -66,6 +69,7 @@ public struct Script: Equatable, Sendable {
     public static func parse(_ text: String) -> Script {
         var out: [Sentence] = []
         var id = 0
+        var occurrences: [String: Int] = [:]
         let paragraphs = text.components(separatedBy: "\n\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -74,7 +78,12 @@ public struct Script: Equatable, Sendable {
             let pieces = splitSentences(paragraph)
             for (i, piece) in pieces.enumerated() {
                 let terminator = piece.last.map { ".!?".contains($0) ? String($0) : "" } ?? ""
-                out.append(Sentence(id: id, text: piece, paragraph: p,
+                let fingerprint = expressionFingerprint(piece)
+                let occurrence = occurrences[fingerprint, default: 0]
+                occurrences[fingerprint] = occurrence + 1
+                out.append(Sentence(id: id,
+                                    expressionKey: "\(fingerprint):\(occurrence)",
+                                    text: piece, paragraph: p,
                                     endsParagraph: i == pieces.count - 1,
                                     terminator: terminator,
                                     clauseBreaks: piece.filter { clauseMarks.contains($0) }.count))
@@ -82,6 +91,16 @@ public struct Script: Equatable, Sendable {
             }
         }
         return Script(sentences: out)
+    }
+
+    /// FNV-1a is deliberately small and duplicated in the TypeScript core.
+    /// This is an identity for local session state, not a security boundary.
+    private static func expressionFingerprint(_ text: String) -> String {
+        var hash: UInt32 = 2_166_136_261
+        for byte in text.precomposedStringWithCanonicalMapping.utf8 {
+            hash = (hash ^ UInt32(byte)) &* 16_777_619
+        }
+        return String(format: "%08x", hash)
     }
 
     /// Words that end in a full stop without ending a sentence.

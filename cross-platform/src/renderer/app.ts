@@ -10,6 +10,8 @@ import { defaultSettings, ranges, type SynthesisSettings } from "../core/setting
 import { paceNote, noteFor } from "../core/voiceNotes.js";
 import { loudnessTargets } from "../core/loudness.js";
 import * as P from "../core/pronunciation.js";
+import type { SentenceExpression } from "../core/expression.js";
+import { cueCounts } from "../core/performanceMarkup.js";
 
 // The bridge, as exposed by the preload.
 declare global {
@@ -25,13 +27,17 @@ const el = (tag: string, cls?: string, text?: string) => {
 };
 
 interface SentenceInfo {
-  id: number; text: string; trailingGap: number; seconds: number;
+  id: number; expressionKey: string; expression: SentenceExpression;
+  text: string; trailingGap: number; seconds: number;
   peakDBFS: number; wordsPerMinute: number;
 }
 
 const state = {
   text: "", voice: "",
   settings: defaultSettings(),
+  /** Whether the chosen voice can be told its own timing. Null until asked. */
+  directsTiming: null as boolean | null,
+  expressions: {} as Record<string, SentenceExpression>,
   exportSettings: { sampleRate: 48000, depth: 16 as 16 | 24, targetLUFS: -14 as number | null, truePeakCeiling: -1 },
   appearance: "system" as "system" | "light" | "dark",
   entries: [] as P.PronunciationEntry[],
@@ -115,6 +121,7 @@ function renderDials() {
   $("trailingPadsVal").textContent = String(state.settings.trailingPads);
   ($("dropFinalFullStop") as HTMLInputElement).checked = state.settings.dropFinalFullStop;
   ($("spokenCurrency") as HTMLInputElement).checked = state.settings.spokenCurrency;
+
   $("clauseNote").textContent = clauseNote();
   $("currencyNote").textContent = currencyNote();
 }
@@ -194,6 +201,7 @@ async function loadVoices() {
 async function voiceChanged() {
   if (!state.voice) { renderVoices(); return; }
   state.vocabulary = new Set<string>(await vf["vocabulary"]!(state.voice));
+  state.directsTiming = await vf["directsTiming"]!(state.voice) as boolean;
   state.defaults.clear();
   state.calibration = null;
   renderVoices(); renderDials(); save();
@@ -231,9 +239,18 @@ function renderTake() {
     const row = el("div", "sentence");
     row.dataset["selected"] = String(state.selected === r.id);
     const top = el("div", "top");
-    top.append(el("span", "text", r.text), el("span", "secs", `${r.seconds.toFixed(2)}s`));
+    top.append(el("span", "text", r.text));
+    const cues = cueCounts(r.text);
+    if (cues.focus + cues.beats > 0) {
+      const parts = [cues.focus ? `${cues.focus} focus` : "", cues.beats ? `${cues.beats} beat` : ""].filter(Boolean);
+      top.append(el("span", "cue", parts.join(" · ")));
+    }
+    top.append(el("span", "secs", `${r.seconds.toFixed(2)}s`));
     row.append(top);
-    row.onclick = () => { state.selected = state.selected === r.id ? null : r.id; renderTake(); };
+    row.onclick = () => {
+      state.selected = state.selected === r.id ? null : r.id;
+      renderTake();
+    };
     if (state.selected === r.id) {
       const d = el("div", "detail");
       d.append(el("span", undefined, `${Math.round(r.wordsPerMinute)} wpm`),
@@ -362,6 +379,22 @@ async function renderDictionary() {
     };
     row.append(del);
 
+    const helper = el("div", "sounds-like");
+    helper.append(el("span", "note", "Sounds like"));
+    const respelling = el("input") as HTMLInputElement;
+    respelling.type = "text"; respelling.placeholder = "ordinary spelling, e.g. cue brick";
+    const use = el("button", "toolbtn", "Use respelling") as HTMLButtonElement;
+    use.disabled = true;
+    respelling.oninput = () => { use.disabled = !respelling.value.trim(); };
+    use.onclick = async () => {
+      const value = await vf["defaultPhonemes"]!(state.voice, respelling.value.trim());
+      if (!value) return;
+      entry.ipa = value; input.value = value;
+      await refreshEntryStatus(entry, row); save();
+    };
+    helper.append(respelling, use, el("span", "note", "Converts to editable IPA"));
+    row.append(helper);
+
     row.append(el("span", "status"));
     void refreshEntryStatus(entry, row);
     return row;
@@ -429,7 +462,7 @@ async function addEntry(word: string) {
 // ------------------------------------------------------------------ work
 const request = () => ({
   text: state.text, voice: state.voice,
-  settings: state.settings, entries: state.entries,
+  settings: state.settings, entries: state.entries, expressions: state.expressions,
 });
 
 async function withBusy(label: string, fn: () => Promise<void>) {
@@ -458,7 +491,7 @@ function save() {
     void vf["saveState"]!({
       text: state.text, voice: state.voice, settings: state.settings,
       exportSettings: state.exportSettings, appearance: state.appearance,
-      entries: state.entries, calibrations: {},
+      entries: state.entries, expressions: state.expressions, calibrations: {},
     });
   }, 400);
 }
@@ -548,7 +581,9 @@ for (const b of document.querySelectorAll<HTMLElement>("[data-step]")) {
     changed();
   });
 }
-for (const [id, key] of [["dropFinalFullStop", "dropFinalFullStop"], ["spokenCurrency", "spokenCurrency"]] as const) {
+for (const [id, key] of [["dropFinalFullStop", "dropFinalFullStop"],
+                         ["spokenCurrency", "spokenCurrency"],
+                         ["automaticDynamics", "automaticDynamics"]] as const) {
   $(id).addEventListener("change", e => {
     (state.settings[key] as boolean) = (e.target as HTMLInputElement).checked;
     changed();
@@ -574,6 +609,7 @@ vf.onProgress(p => { if (state.busy) $("btnRender").textContent = `${state.busy}
 
 I have been building a text to speech tool, and the interesting part is not the voice — it is the timing. A comma is worth about half a second here, which is longer than most people expect.`;
   if (saved.settings) state.settings = saved.settings;
+  if (saved.expressions) state.expressions = saved.expressions;
   if (saved.exportSettings) state.exportSettings = saved.exportSettings;
   if (saved.appearance) state.appearance = saved.appearance;
   if (saved.entries) state.entries = saved.entries;

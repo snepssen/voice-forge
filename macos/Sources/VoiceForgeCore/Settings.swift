@@ -96,6 +96,18 @@ public struct SynthesisSettings: Equatable, Sendable, Codable {
     /// was given. See `Script.spokenCurrency`.
     public var spokenCurrency: Bool = true
 
+    /// Let the text decide where the weight falls.
+    ///
+    /// On, a sentence is read rather than recited: the point of each phrase is
+    /// held and lifted, a phrase settles at its clause mark, unstressed words
+    /// give way, and a word already said in the paragraph steps back. Off,
+    /// every sound lasts exactly as long as the model predicted, which is where
+    /// this app started and what every measurement in it was taken against.
+    ///
+    /// It needs a voice whose graph can be told its own timing. On one that
+    /// cannot, this changes nothing rather than failing.
+    public var automaticDynamics: Bool = true
+
     public init() {}
 
     // MARK: ranges

@@ -61,10 +61,12 @@ It does not require re-exporting an older checkpoint. All-one factors produced
 sample-identical output on four sentence lengths. Targeted word-span factors
 added 151 ms to “you” or 430 ms to “stole”; other token durations were unchanged.
 
-See [the isolated experiment](../experiments/piper-timing/README.md) for source
-provenance, reproduction, measurements, and limitations. It is not installed
-in either app, and the Rode model is not yet tested. The stock adapter cannot
-load this additional-input model without implementation work.
+See [the patch tool](../experiments/piper-timing/README.md) for what it changes
+and the property it rests on. *As of 2026-09-16 this paragraph is superseded —
+the patched graph is the bundled voice and both adapters supply its input. See
+the last section.* At the time of writing it was installed in neither app, the
+Rode model was untested, and the stock adapter could not load an
+additional-input model without implementation work.
 
 The user reports that restoring the configured acoustic noise scale (0.667
 instead of the parity test's zero) removed glitchiness in the diagnostic clips.
@@ -185,6 +187,55 @@ leave uncertain onset/transient regions unchanged, and test other sentences in
 both Suno and Rode voices. The passing fixed-clip output remains a reference;
 retain both dry-region equality and actual shifted-core evidence to prevent an
 inaudible/no-op implementation being mistaken for successful expression.
-See the experiment README and its diagnostic manifests for reproducible evidence.
 Believable emotional acting still requires separate evidence; timing control
 alone does not demonstrate happiness, anger, flirtation, or intimacy.
+
+## 2026-09-16 outcome
+
+The timing control shipped. The pitch work did not, and the expression presets
+were withdrawn.
+
+**What shipped.** The bundled voice is now the patched graph, and both cores
+supply `vf_duration_factors`. A vector of ones reproduces the previous audio
+byte-for-byte — verified by hash through the app's own render path before
+anything was switched on — so the swap bought no feature by itself. On top of
+it, the text decides the delivery: the point of each phrase is held and lifted,
+a phrase settles at its clause mark, unstressed material gives way, and a word
+already said in the paragraph steps back. There is no control for it. The
+listener's report was that it "genuinely improved pronunciation", which is the
+only reason it is on.
+
+That happens per sound, not per word. A phoneme class map gives each sound a
+share of any direction it is handed: a vowel and the length mark take all of it,
+a liquid about half, unvoiced friction barely any, and a plosive none. This is
+the `ssttoollee` rejection expressed as a rule, and the suites assert it — no
+token whose class cannot be held ever changes duration.
+
+**Why the presets were withdrawn.** Three measured reasons, none of them
+fixable by tuning. Pace moved 2.6% for a 12.8% request, because the graph rounds
+each token's duration up to a whole frame and the median token here is two, so
+98% of tokens did not move. The two noise scales only change which draw comes
+out, so two takes of one preset already differed more than two presets did. What
+remained was 1–2.5 dB of broadband shelf, which the ear reads as level. The
+listener's report — "no difference, but a bit louder" — describes that exactly.
+
+Rebuilding them on the timing layer did work by the numbers: the six went from
+3% apart in duration to 28–30%, and rewriting each preset's stress marks spread
+their measured pitch ranges from 4.8 to 12.0 semitones. It still was not a
+convincing set of emotions, because this voice is not style-conditioned and no
+amount of timing and level makes it one. The selector is gone from both
+interfaces rather than left as a control that does something measurable but not
+something anyone would reach for.
+
+**The one finding worth carrying forward.** The stress marks are an intonation
+control the model answers to natively, because it was trained on them.
+Stripping them narrows the measured pitch range from about 7.8 to 5.8
+semitones; promoting every secondary to primary widens it to about 9.4. That is
+the model voicing the line differently, not a filter bending what it already
+voiced — which is what all five rejected pitch attempts were reaching for. It
+ships as `restress`, sitting at zero for the default reading.
+
+**Not pursued.** Emotion properly done needs a model conditioned on something at
+synthesis time — a style vector, reference audio, a text prompt. Every such
+engine costs the single executable and the no-Python rule this project is built
+around, so the decision was to stay a small tool.

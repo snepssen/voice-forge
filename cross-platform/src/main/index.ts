@@ -5,6 +5,9 @@ import { readFileSync, writeFileSync, copyFileSync, existsSync, rmSync } from "f
 import { VoiceEngine, type RenderedSentence } from "./engine.js";
 import { parseScript } from "../core/script.js";
 import { defaultSettings, type SynthesisSettings } from "../core/settings.js";
+import { performanceWordCount } from "../core/performanceMarkup.js";
+import { applyExpression, expressionSettings, neutralExpression, normalizedExpression,
+         toneFor, type SentenceExpression } from "../core/expression.js";
 import { effectiveEntries, checkPronunciation, isBlocking, entryKey,
          type PronunciationEntry } from "../core/pronunciation.js";
 import { voicesDir, sessionFile, pronunciationFile, ensureDirs } from "../core/paths.js";
@@ -136,6 +139,7 @@ interface Saved {
   settings: SynthesisSettings;
   exportSettings: { sampleRate: number; depth: 16 | 24; targetLUFS: number | null; truePeakCeiling: number };
   appearance: "system" | "light" | "dark";
+  expressions: Record<string, SentenceExpression>;
   projectEntries: PronunciationEntry[];
   calibrations: Record<string, unknown>;
 }
@@ -248,12 +252,17 @@ ipcMain.handle("voice:vocabulary", async (_e, voice: string) =>
   [...(await engineFor(voice)).vocabulary]);
 ipcMain.handle("voice:defaultPhonemes", async (_e, voice: string, word: string) =>
   (await engineFor(voice)).defaultPhonemes(word));
+// Whether this voice can be told its own timing. The engine is already open and
+// cached by the time anything asks, so this costs nothing.
+ipcMain.handle("voice:directsTiming", async (_e, voice: string) =>
+  (await engineFor(voice)).directsTiming);
 
 // ----------------------------------------------------------------- render
 interface RenderRequest {
   text: string; voice: string;
   settings: SynthesisSettings;
   entries: PronunciationEntry[];
+  expressions: Record<string, SentenceExpression>;
 }
 
 /** Only entries that pass validation reach the model. A warning does not
@@ -268,7 +277,7 @@ ipcMain.handle("render", async (_e, req: RenderRequest) => {
   const engine = await engineFor(req.voice);
   const script = parseScript(req.text);
   const dict = await usableEntries(req);
-  lastRendered = await engine.render(script, req.settings, dict,
+  lastRendered = await engine.render(script, req.settings, dict, req.expressions ?? {},
     (done, total) => win?.webContents.send("progress", done / total));
   const audio = engine.assemble(lastRendered);
   return {
@@ -285,11 +294,18 @@ ipcMain.handle("render:one", async (_e, req: RenderRequest & { id: number }) => 
   const index = lastRendered.findIndex(r => r.id === req.id);
   if (index < 0) return null;
   const old = lastRendered[index]!;
-  const samples = await engine.renderSentence(old.text, req.settings, await usableEntries(req));
+  const expression = normalizedExpression(req.expressions?.[old.expressionKey]);
+  const sentenceSettings = expressionSettings(req.settings, expression);
+  const raw = await engine.renderSentence(old.text, sentenceSettings, await usableEntries(req));
+  const previous = index > 0
+    ? lastRendered[index - 1]!.expression
+    : neutralExpression();
+  const samples = applyExpression(raw, toneFor(previous), toneFor(expression),
+                                  expression.transitionSeconds, engine.sampleRate);
   const seconds = samples.length / engine.sampleRate;
-  const words = old.text.split(/\s+/).filter(Boolean).length;
+  const words = performanceWordCount(old.text);
   let peak = 0; for (const v of samples) peak = Math.max(peak, Math.abs(v));
-  lastRendered[index] = { ...old, samples, seconds,
+  lastRendered[index] = { ...old, expression, samples, seconds,
     peakDBFS: peak > 0 ? 20 * Math.log10(peak) : -Infinity,
     wordsPerMinute: seconds > 0 ? (words / seconds) * 60 : 0 };
   const audio = engine.assemble(lastRendered);

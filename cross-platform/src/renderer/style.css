@@ -127,6 +127,8 @@ input[type=checkbox] { accent-color: var(--purple); width: 14px; height: 14px; }
 .sentence .top { display: flex; gap: 10px; align-items: baseline; }
 .sentence .secs { margin-left: auto; color: var(--comment); font-size: 11px;
                   font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sentence .expression { color: var(--orange); font-size: 10px; white-space: nowrap; }
+.sentence .cue { color: var(--yellow); font-size: 10px; white-space: nowrap; }
 .sentence[data-selected="true"] .text { color: var(--purple); }
 .sentence .detail {
   display: flex; gap: 12px; align-items: center; margin-top: 4px;
@@ -189,6 +191,8 @@ input[type=checkbox] { accent-color: var(--purple); width: 14px; height: 14px; }
   user-select: text;
 }
 .entry .status { grid-column: 1 / -1; font-size: 11px; margin-top: -2px; }
+.entry .sounds-like { grid-column: 2 / -1; display: flex; align-items: center; gap: 8px; }
+.entry .sounds-like input { flex: 1; min-width: 160px; }
 #suggest { border-top: 1px solid var(--inset); padding: 12px 14px; max-height: 108px; overflow-y: auto; }
 .chip {
   display: inline-block; background: var(--inset); border: 0; border-radius: 999px;

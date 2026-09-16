@@ -20,6 +20,41 @@ measurement taken from one voice does not describe another, so *Measure this
 voice* is a button rather than a printed constant, and the app will not print one
 voice's figure under another's name.
 
+The text decides the delivery, and there is no switch for it. A sentence is read
+rather than recited: the point of each phrase is held a little and lifted, a
+phrase settles at its clause mark, unstressed words give way, and a word already
+said in the paragraph steps back the second time. That happens per *sound* — a
+vowel can be held, a stop cannot, and holding one anyway is what turns a
+stretched word into a stutter.
+
+It is the timing the model is told, not a filter over what it produced. The
+bundled voice's graph carries an extra input for per-token duration, and feeding
+it a vector of ones reproduces the stock model bit for bit, which is how the
+change was shown to be inert before any of it was switched on. A voice installed
+from elsewhere has no such input and renders exactly as it always did.
+
+Inside a sentence, `*focused words*` receive their own stress and room, while
+`[[beat:short]]`, `[[beat]]` and `[[beat:long]]` add authored breaths to the same
+model call. Pronunciations can be edited as IPA or seeded from an ordinary
+“sounds like” respelling and inspected before use.
+
+There is no emotion selector. One was built — Happy, Playful, Intimate, Flirty,
+Angry — and it is gone from the interface because it did not earn its place. The
+honest reason is in [docs/expression-development.md](docs/expression-development.md):
+this voice is not style-conditioned, so an expression could only reach pace, two
+noise scales and some EQ, and none of the three survived. The pace moved 2% of a 13% request
+because the graph rounds every token up to a whole frame. The noise scales only
+redrew the dice. The EQ read as loudness rather than character. Rebuilding it on
+the timing layer made the six measurably different — and still not convincing
+enough to keep a control for.
+
+For controlled listening comparisons, run `npm run audition` from `cross-platform`.
+It creates a local HTML page with playable WAVs and a JSON measurement manifest.
+EQ comparisons reuse the exact same recording, with loudness matched using gain
+only. Separate phrase-direction comparisons disable both Piper noise scales and
+verify a repeatable baseline. These are experiments for listening evaluation;
+passing signal checks does not establish naturalness or emotional expression.
+
 ## Two implementations
 
 | | | |
@@ -31,7 +66,7 @@ The interface is drawn in HTML on the cross-platform side rather than handed to
 GTK or Qt, so it looks the same everywhere instead of being three apps that
 happen to share a name.
 
-**The two cores are held to each other.** 18 parity checks compare phonemes
+**The two cores are held to each other.** 20 parity checks compare phonemes
 byte-for-byte and durations to the millisecond — 1.637 s against 1.637 s — with
 the duration predictor made deterministic so the comparison means something. If
 they ever disagree, one of the two suites goes red.
