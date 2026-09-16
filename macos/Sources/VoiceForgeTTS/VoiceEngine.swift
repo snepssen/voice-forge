@@ -183,14 +183,52 @@ public final class VoiceEngine: @unchecked Sendable {
         return out
     }
 
+    /// Whether this voice can be told how long each sound should last.
+    ///
+    /// The bundled voice's graph carries an extra input for it. A voice
+    /// somebody added themselves will not, and asks nothing of them: it renders
+    /// exactly as it always did, and the timing controls have nothing to
+    /// address rather than failing.
+    public var directsTiming: Bool {
+        ((try? session.inputNames()) ?? []).contains(Self.durationFactorsInput)
+    }
+
     /// One sentence, one inference call. Never less, never more.
     public func renderSentence(_ text: String, settings: SynthesisSettings,
-                               dictionary: [PronunciationEntry] = []) throws -> [Float] {
+                               dictionary: [PronunciationEntry] = [],
+                               directions: [SoundDirection] = []) throws -> [Float] {
+        try renderTimed(text, settings: settings, dictionary: dictionary,
+                        directions: directions).samples
+    }
+
+    /// The same call, keeping what the model said about its own timing.
+    ///
+    /// The frame counts come back from the graph rather than from a recogniser
+    /// guessing at word boundaries, so an accent's level can be laid over the
+    /// exact samples of the sound it belongs to.
+    public func renderTimed(_ text: String, settings: SynthesisSettings,
+                            dictionary: [PronunciationEntry] = [],
+                            directions: [SoundDirection] = [])
+        throws -> (samples: [Float], layout: TokenLayout, frames: [Float]) {
         let phonemized = preparedPhonemes(for: text, settings: settings,
                                           dictionary: dictionary).encoded
-        let ids = phonemeIDs(phonemized, settings: settings)
-        guard !ids.isEmpty else { return [] }
-        return try infer(ids: ids, settings: settings)
+        let layout = tokenLayout(phonemized, settings: settings)
+        guard !layout.ids.isEmpty else { return ([], layout, []) }
+
+        // A vector of ones is not a no-op we hope for -- it is the patch's
+        // defining property, checked against the unpatched graph.
+        let factors = directsTiming ? TimingPlan.durationFactors(layout, directions) : []
+        let result = try infer(ids: layout.ids, settings: settings, factors: factors)
+
+        var samples = result.samples
+        if !result.frames.isEmpty, directions.contains(where: { $0.accentDB != 0 }) {
+            let total = result.frames.reduce(0) { $0 + Double($1) }
+            let hop = total > 0 ? Int((Double(samples.count) / total).rounded()) : 256
+            let gain = TimingPlan.accentEnvelope(layout, directions, frames: result.frames,
+                                                 samples: samples.count, hop: max(1, hop))
+            for i in samples.indices { samples[i] *= gain[i] }
+        }
+        return (samples, layout, result.frames)
     }
 
     /// The phonemes a sentence will actually be spoken from, with the
@@ -400,7 +438,14 @@ public final class VoiceEngine: @unchecked Sendable {
         return TokenLayout(ids: ids, slots: slots, words: word + 1)
     }
 
-    private func infer(ids: [Int], settings: SynthesisSettings) throws -> [Float] {
+    static let durationFactorsInput = "vf_duration_factors"
+    static let baseFramesOutput = "vf_base_frames"
+    /// The exporter's own name for the rounded durations, kept as the patch
+    /// found it rather than renamed.
+    static let actualFramesOutput = "/Ceil_output_0"
+
+    private func infer(ids: [Int], settings: SynthesisSettings,
+                       factors: [Float] = []) throws -> (samples: [Float], frames: [Float]) {
         let inputData = NSMutableData(bytes: ids.map { Int64($0) }, length: ids.count * 8)
         let inputTensor = try ORTValue(tensorData: inputData, elementType: .int64,
                                        shape: [1, NSNumber(value: ids.count)])
@@ -415,16 +460,31 @@ public final class VoiceEngine: @unchecked Sendable {
         let scalesData = NSMutableData(bytes: &scales, length: 12)
         let scalesTensor = try ORTValue(tensorData: scalesData, elementType: .float, shape: [3])
 
-        let outputs = try session.run(
-            withInputs: ["input": inputTensor, "input_lengths": lengthTensor, "scales": scalesTensor],
-            outputNames: ["output"], runOptions: nil)
+        var inputs = ["input": inputTensor, "input_lengths": lengthTensor,
+                      "scales": scalesTensor]
+        if !factors.isEmpty {
+            var values = factors
+            let factorData = NSMutableData(bytes: &values,
+                                           length: values.count * MemoryLayout<Float>.size)
+            inputs[Self.durationFactorsInput] = try ORTValue(
+                tensorData: factorData, elementType: .float,
+                shape: [1, 1, NSNumber(value: values.count)])
+        }
+
+        let available = Set(((try? session.outputNames()) ?? []))
+        var wanted: Set<String> = ["output"]
+        if available.contains(Self.actualFramesOutput) { wanted.insert(Self.actualFramesOutput) }
+
+        let outputs = try session.run(withInputs: inputs, outputNames: wanted, runOptions: nil)
         guard let tensor = outputs["output"], let data = try tensor.tensorData() as Data?
         else { throw VoiceEngineError.noOutput }
 
-        let count = data.count / MemoryLayout<Float>.size
-        return data.withUnsafeBytes { raw in
-            Array(raw.bindMemory(to: Float.self).prefix(count))
+        func floats(_ value: ORTValue?) -> [Float] {
+            guard let value, let data = try? value.tensorData() as Data else { return [] }
+            let count = data.count / MemoryLayout<Float>.size
+            return data.withUnsafeBytes { Array($0.bindMemory(to: Float.self).prefix(count)) }
         }
+        return (floats(tensor), floats(outputs[Self.actualFramesOutput]))
     }
 
     /// The IPA a piece of text will actually be spoken from.

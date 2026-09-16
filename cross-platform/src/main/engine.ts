@@ -6,6 +6,7 @@ import type { SynthesisSettings } from "../core/settings.js";
 import { applyExpression, expressionSettings, neutralExpression, normalizedExpression,
          toneFor, type SentenceExpression } from "../core/expression.js";
 import { beatPads, parsePerformanceMarkup, performanceWordCount } from "../core/performanceMarkup.js";
+import { accentEnvelope, durationFactors, type SoundDirection } from "../core/timingPlan.js";
 import { clauseMarks, spacedEmDashes, spokenCurrency, type Script } from "../core/script.js";
 import { applyDictionary, entryKey, type PronunciationEntry } from "../core/pronunciation.js";
 import { scanVoices, mergeVoices, type VoiceProfile, type VoiceRejection } from "../core/voiceLibrary.js";
@@ -30,6 +31,21 @@ function promoteFocus(phonemes: string): string {
   const index = groups.findIndex(group => /\p{L}/u.test(group));
   if (index >= 0) groups[index] = `ˈ${groups[index]}`;
   return groups.join(" ");
+}
+
+/** The graph's own names for the timing control and what it reports back.
+ * `/Ceil_output_0` is the exporter's name for the rounded durations, kept as
+ * the patch found it rather than renamed. */
+const durationFactorsInput = "vf_duration_factors";
+const baseFramesOutput = "vf_base_frames";
+const actualFramesOutput = "/Ceil_output_0";
+
+export interface TimedRender {
+  samples: Float32Array;
+  layout: TokenLayout;
+  /** Frames per token, as the model rounded them. Empty on a voice that
+   * cannot report its timing. */
+  frames: number[];
 }
 
 /** One id as the model receives it, and what it is carrying. */
@@ -291,20 +307,65 @@ export class VoiceEngine {
     return { ids, slots, words: word + 1 };
   }
 
+  /**
+   * Whether this voice can be told how long each sound should last.
+   *
+   * The bundled voice's graph carries an extra input for it. A voice somebody
+   * added themselves will not, and asks nothing of them: it renders exactly as
+   * it always did, and the timing controls simply have nothing to address.
+   */
+  get directsTiming(): boolean {
+    return this.session.inputNames.includes(durationFactorsInput);
+  }
+
   /** One sentence, one inference call. Never less, never more. */
   async renderSentence(text: string, settings: SynthesisSettings,
-                       dictionary: PronunciationEntry[] = []): Promise<Float32Array> {
+                       dictionary: PronunciationEntry[] = [],
+                       directions: SoundDirection[] = []): Promise<Float32Array> {
+    return (await this.renderTimed(text, settings, dictionary, directions)).samples;
+  }
+
+  /**
+   * The same call, keeping what the model said about its own timing.
+   *
+   * The frame counts come back from the graph rather than from a recogniser
+   * guessing at word boundaries, so an accent's level can be laid over the
+   * exact samples of the sound it belongs to.
+   */
+  async renderTimed(text: string, settings: SynthesisSettings,
+                    dictionary: PronunciationEntry[] = [],
+                    directions: SoundDirection[] = []): Promise<TimedRender> {
     const { encoded } = await this.preparedPhonemes(text, settings, dictionary);
-    const ids = this.phonemeIds(encoded, settings);
-    if (!ids.length) return new Float32Array(0);
-    const out = await this.session.run({
+    const layout = this.tokenLayout(encoded, settings);
+    const ids = layout.ids;
+    if (!ids.length) return { samples: new Float32Array(0), layout, frames: [] };
+
+    const feeds: Record<string, ort.Tensor> = {
       input: new ort.Tensor("int64", BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
       input_lengths: new ort.Tensor("int64", BigInt64Array.from([BigInt(ids.length)]), [1]),
       // The order is the model's, not ours: noise, length, noise_w.
       scales: new ort.Tensor("float32",
         Float32Array.from([settings.noiseScale, settings.lengthScale, settings.noiseW]), [3]),
-    });
-    return out["output"]!.data as Float32Array;
+    };
+    // A vector of ones is not a no-op we hope for — it is the patch's defining
+    // property, checked against the unpatched graph at four lengths.
+    const factors = this.directsTiming
+      ? durationFactors(layout, directions) : new Float32Array(0);
+    if (this.directsTiming) {
+      feeds[durationFactorsInput] = new ort.Tensor("float32", factors, [1, 1, factors.length]);
+    }
+
+    const out = await this.session.run(feeds);
+    let samples = out["output"]!.data as Float32Array;
+    const framesTensor = out[actualFramesOutput] ?? out[baseFramesOutput];
+    const frames = framesTensor ? Array.from(framesTensor.data as Float32Array) : [];
+
+    if (frames.length && directions.some(d => d.accentDB !== 0)) {
+      const hop = Math.round(samples.length / Math.max(1, frames.reduce((n, f) => n + f, 0)));
+      const gain = accentEnvelope(layout, directions, frames, samples.length, hop || 256);
+      samples = samples.map((v, i) => v * gain[i]!);
+    }
+    return { samples, layout, frames };
   }
 
   async render(script: Script, settings: SynthesisSettings, dictionary: PronunciationEntry[] = [],

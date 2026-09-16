@@ -685,3 +685,41 @@ is held to the same 23 assertions as the TypeScript suite, wording included.
 Nothing is wired into either app yet. The remaining blocker is unchanged — the
 graph this needs has a required input the shipped adapters do not supply, and
 must not be installed in the stock app.
+
+### Installed — 2026-09-16
+
+The graph this directory has warned against installing for its whole life is now
+the bundled voice, and both adapters supply its extra input.
+
+The warning was right up to the moment the adapters could feed it, and the
+argument that had been holding it back was mine and was wrong. I had said
+committing a patched copy would add about 122 MB to history, twice over. It adds
+**nothing**: git deltas the two files to zero, because the weights are identical
+content and the patch only inserts two nodes. Measured rather than reasoned —
+57592 KB of `.git` before the patched model, 57592 KB after. A naive `cmp`
+reports 62 million differing bytes, because inserting nodes shifts every later
+offset, which is exactly the kind of difference delta compression is for. So
+there was never a reason to write an ONNX protobuf editor in two languages, nor
+to patch on first run and cache by hash.
+
+Installed, and fed a vector of ones, the swap is inert — not by argument but by
+fingerprint, taken through the app's own render path before and after:
+
+    36096  9a55a4a980b3f2b1e4c677fc  Welcome back to the channel.
+    40704  041e10fe4af8b571fd9564ea  I didn't say you stole it.
+    75264  f653d89824361da11375cc0c  She was absolutely furious about the noise
+    87808  258d08372081c6b09f5d531c  When you arrive at the old house beside
+
+Identical on both sides of the swap, sample counts included. The only thing that
+changed is that `directsTiming` now answers true. Engine parity still reads
+1.637 s against Swift's 1.637 s, 208 checks pass on one core and 269 on the
+other, and the end-to-end smoke renders 33.38 s of audio at 22.6× realtime.
+
+A voice somebody installed themselves has no such input, so `directsTiming`
+answers false for it, no factors are sent, and it renders exactly as it always
+did. That is not a legacy path kept alive out of caution — it is the voice
+library this app has always had, and it asks nothing of the person using it.
+
+Nothing about the delivery has changed yet. This step deliberately buys no
+feature: it puts the capable graph in place and proves it audible-identical, so
+that when the dynamics are switched on, a regression cannot hide behind them.
