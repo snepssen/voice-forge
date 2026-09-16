@@ -117,6 +117,19 @@ lower “you”, higher “stole”, then higher “it”. New analysis and a se
 word-register audition use R7's actual landmarks instead of old Take 3's
 pattern. Synthetic pacing is retained; no full performance match is claimed.
 Output pitch ambiguity persists on two words and is explicitly unverified.
-Listener approval remains pending, and the app remains untouched.
+The user rejected this R7 audition as losing voice coherence/body and becoming
+weak/airy. The app remains untouched. An exact replay isolates the pitch-changing
+path: the neutral Rubber Band pass is near-identical, while disabling formant
+preservation restores some measured level but is not an established timbre fix.
+Improved periodicity measurements in the rejected clip do not override listening.
+
+A separate Praat TD-PSOLA benchmark now uses the same accepted source, R7 curve
+and duration, with a genuinely resynthesized zero-shift control. Neutral word
+levels and estimated pitch stay close to the source. The shifted output still
+fails verification: too few reliable frames on “you” and an unresolved octave
+disagreement on “it”. Both retain the recognized sentence; that does not certify
+coherence. The shifted output is not promoted as a replacement audition. Evaluate
+the neutral control's vocal body separately before attempting more pitch transfer.
+See the experiment README and its diagnostic manifests for reproducible evidence.
 Believable emotional acting still requires separate evidence; timing control
 alone does not demonstrate happiness, anger, flirtation, or intimacy.
