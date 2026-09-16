@@ -207,6 +207,11 @@ final class Studio: ObservableObject {
     /// validated against a voice that is not there.
     var vocabulary: Set<String> { (try? engine(voice))?.vocabularySet ?? [] }
 
+    /// Whether the chosen voice can be told its own timing. A voice that cannot
+    /// gets a disabled control and the reason, rather than a switch that looks
+    /// like it works and changes nothing.
+    var directsTiming: Bool { (try? engine(voice))?.directsTiming ?? false }
+
     /// What espeak says for a word on its own, for the "says it as" column.
     func defaultPhonemes(for word: String) -> String {
         (try? engine(voice))?.defaultPhonemes(for: word) ?? ""

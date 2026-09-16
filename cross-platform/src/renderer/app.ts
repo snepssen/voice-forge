@@ -36,6 +36,8 @@ interface SentenceInfo {
 const state = {
   text: "", voice: "",
   settings: defaultSettings(),
+  /** Whether the chosen voice can be told its own timing. Null until asked. */
+  directsTiming: null as boolean | null,
   expressions: {} as Record<string, SentenceExpression>,
   exportSettings: { sampleRate: 48000, depth: 16 as 16 | 24, targetLUFS: -14 as number | null, truePeakCeiling: -1 },
   appearance: "system" as "system" | "light" | "dark",
@@ -120,6 +122,18 @@ function renderDials() {
   $("trailingPadsVal").textContent = String(state.settings.trailingPads);
   ($("dropFinalFullStop") as HTMLInputElement).checked = state.settings.dropFinalFullStop;
   ($("spokenCurrency") as HTMLInputElement).checked = state.settings.spokenCurrency;
+
+  // A voice that cannot be told its timing gets a disabled control and the
+  // reason, rather than a switch that appears to work and changes nothing.
+  const dynamics = $("automaticDynamics") as HTMLInputElement;
+  const able = state.directsTiming !== false;
+  dynamics.checked = state.settings.automaticDynamics && able;
+  dynamics.disabled = !able;
+  $("automaticDynamicsNote").textContent = !able
+    ? "This voice renders every sound at the length the model predicted. Only a voice built for it can be directed this way."
+    : state.settings.automaticDynamics
+      ? "The point of each phrase is held and lifted, a phrase settles at its clause mark, and a word already said in the paragraph steps back."
+      : "Every sound lasts exactly as long as the model predicted. This is what every figure printed above was measured against.";
   $("clauseNote").textContent = clauseNote();
   $("currencyNote").textContent = currencyNote();
 }
@@ -199,6 +213,7 @@ async function loadVoices() {
 async function voiceChanged() {
   if (!state.voice) { renderVoices(); return; }
   state.vocabulary = new Set<string>(await vf["vocabulary"]!(state.voice));
+  state.directsTiming = await vf["directsTiming"]!(state.voice) as boolean;
   state.defaults.clear();
   state.calibration = null;
   renderVoices(); renderDials(); save();
@@ -641,7 +656,9 @@ for (const b of document.querySelectorAll<HTMLElement>("[data-step]")) {
     changed();
   });
 }
-for (const [id, key] of [["dropFinalFullStop", "dropFinalFullStop"], ["spokenCurrency", "spokenCurrency"]] as const) {
+for (const [id, key] of [["dropFinalFullStop", "dropFinalFullStop"],
+                         ["spokenCurrency", "spokenCurrency"],
+                         ["automaticDynamics", "automaticDynamics"]] as const) {
   $(id).addEventListener("change", e => {
     (state.settings[key] as boolean) = (e.target as HTMLInputElement).checked;
     changed();

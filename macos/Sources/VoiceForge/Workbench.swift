@@ -287,7 +287,7 @@ struct Workbench: View {
     private var controls: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                performance; pauses; scales; advanced; exportPanel
+                delivery; performance; pauses; scales; advanced; exportPanel
             }
                 .padding(14)
         }
@@ -433,6 +433,28 @@ struct Workbench: View {
                  note: "How much the rhythm differs between takes. At zero, two takes of a line are near-identical — repeatable, and noticeably mechanical.",
                  reference: 0.8)
         }
+    }
+
+    private var delivery: some View {
+        Panel(title: "Delivery") {
+            Toggle("Let the text decide the delivery",
+                   isOn: $studio.settings.automaticDynamics)
+                .foregroundStyle(Monokai.fg)
+                .disabled(!studio.directsTiming)
+            Text(deliveryNote)
+                .font(.caption).foregroundStyle(Monokai.comment)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var deliveryNote: String {
+        guard studio.directsTiming else {
+            return "This voice renders every sound at the length the model predicted. "
+                 + "Only a voice built for it can be directed this way."
+        }
+        return studio.settings.automaticDynamics
+            ? "The point of each phrase is held and lifted, a phrase settles at its clause mark, and a word already said in the paragraph steps back."
+            : "Every sound lasts exactly as long as the model predicted. This is what every figure printed above was measured against."
     }
 
     private var advanced: some View {

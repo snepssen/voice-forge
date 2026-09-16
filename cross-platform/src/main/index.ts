@@ -252,6 +252,10 @@ ipcMain.handle("voice:vocabulary", async (_e, voice: string) =>
   [...(await engineFor(voice)).vocabulary]);
 ipcMain.handle("voice:defaultPhonemes", async (_e, voice: string, word: string) =>
   (await engineFor(voice)).defaultPhonemes(word));
+// Whether this voice can be told its own timing. The engine is already open and
+// cached by the time anything asks, so this costs nothing.
+ipcMain.handle("voice:directsTiming", async (_e, voice: string) =>
+  (await engineFor(voice)).directsTiming);
 
 // ----------------------------------------------------------------- render
 interface RenderRequest {

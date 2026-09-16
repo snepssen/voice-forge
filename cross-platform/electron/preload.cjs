@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("vf", {
   openVoicesFolder: ()            => invoke("voices:folder"),
   openTraining:     ()            => invoke("app:training"),
   vocabulary:       (voice)       => invoke("voice:vocabulary", voice),
+  directsTiming:    (voice)       => invoke("voice:directsTiming", voice),
   defaultPhonemes:  (voice, word) => invoke("voice:defaultPhonemes", voice, word),
   render:           (req)         => invoke("render", req),
   renderOne:        (req)         => invoke("render:one", req),

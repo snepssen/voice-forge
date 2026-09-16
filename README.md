@@ -20,6 +20,14 @@ measurement taken from one voice does not describe another, so *Measure this
 voice* is a button rather than a printed constant, and the app will not print one
 voice's figure under another's name.
 
+By default the text decides the delivery. A sentence is read rather than
+recited: the point of each phrase is held a little and lifted, a phrase settles
+at its clause mark, unstressed words give way, and a word already said in the
+paragraph steps back the second time. That happens per *sound* rather than per
+word — a vowel can be held, a stop cannot, and holding one anyway is what makes
+a stretched word sound like a stutter. It is a switch, and off is the flat
+engine every measurement here was taken against.
+
 Performance can be directed at two levels. A rendered sentence can carry a
 Happy, Playful, Intimate, Flirty or Angry expression with its own intensity and
 sentence pace and a smooth tonal transition. The shipped Piper voice is not style-conditioned,
