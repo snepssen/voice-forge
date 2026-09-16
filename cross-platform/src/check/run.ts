@@ -18,6 +18,7 @@ import * as E from "../core/expression.js";
 import * as M from "../core/performanceMarkup.js";
 import * as PH from "../core/phonology.js";
 import * as T from "../core/timingPlan.js";
+import * as PR from "../core/prosody.js";
 import type { TokenLayout, TokenSlot } from "../main/engine.js";
 
 let passed = 0, failed = 0, suite = "";
@@ -315,6 +316,79 @@ setSuite("timing plan");
     "hold and level move together rather than separately");
   equal(T.accentedDirection(0, 1, 4).accentDB, T.fullAccentDB,
         "and a strength past full is held at full");
+}
+
+// ------------------------------------------------------------------ prosody
+setSuite("prosody");
+{
+  // Built by hand from what espeak really emits for these sentences, so the
+  // suite still never loads a model.
+  const stream = (phonemes: string): TokenLayout => {
+    const slots: TokenSlot[] = [];
+    let word = 0, index = 0;
+    const push = (symbol: string, kind: TokenSlot["kind"], w: number) =>
+      slots.push({ index: index++, symbol, kind, word: w });
+    push("^", "frame", -1); push("^", "blank", -1);
+    for (const ch of [...phonemes]) {
+      const spoken = ch !== " ";
+      push(ch, "symbol", spoken ? word : -1);
+      push(ch, "blank", spoken ? word : -1);
+      if (!spoken) word++;
+    }
+    push("$", "frame", -1);
+    return { ids: slots.map(() => 0), slots, words: word + 1 };
+  };
+
+  // "The cat sat on the mat in the sun." — note nine written words arrive as
+  // seven groups, because espeak runs "on the" and "in the" together.
+  const cat = stream("ðə kˈæt sˈæt ɔnðə mˈæt ɪnðə sˈʌn");
+  const groups = PR.prosodicGroups(cat);
+  equal(groups.length, 7, "a sentence is read as the groups espeak made, not its written words");
+  equal(groups.map(g => g.prominence),
+        ["reduced", "accented", "accented", "reduced", "accented", "reduced", "accented"],
+        "espeak's own stress marks say which words carry weight");
+
+  const plan = PR.automaticDirections(cat);
+  const on = (word: number) => plan.find(d => d.word === word);
+  expect(on(6)!.accentDB > 0, "the point of the phrase lands on its last content word");
+  expect(plan.filter(d => d.accentDB > 0).length === 1,
+         "and only there — one phrase makes one point");
+  expect(on(0)!.stretch < 1 && on(3)!.stretch < 1 && on(5)!.stretch < 1,
+         "the unstressed words give way, so the beats come out uneven");
+  const reduced = new Set(groups.filter(g => g.prominence === "reduced").map(g => g.word));
+  expect(plan.filter(d => d.stretch < 1).every(d => reduced.has(d.word)),
+         "and only they do — a word carrying weight is never compressed");
+  expect(!plan.some(d => d.word === 1), "a content word that is not the point is left alone");
+
+  // Two clauses, so two points rather than one.
+  const cold = stream("ɪt wʌz kˈoʊld, ɪt wʌz lˈeɪt, ænd nˈoʊbɑːdi kˈeɪm");
+  const twice = PR.automaticDirections(cold);
+  equal(twice.filter(d => d.accentDB > 0).length, 3, "each clause makes its own point");
+  expect(twice.find(d => d.word === 2)!.stretch > 1,
+         "and a phrase settles at the clause mark");
+
+  // The same word twice in a paragraph should not be hit twice.
+  const seen = PR.spokenKeys(stream("ðə ɡˈɑːɹdən"));
+  expect(seen.has("ɡɑːɹdən"), "a word is remembered without its stress mark");
+  const fresh = PR.automaticDirections(stream("ɪn ðə ɡˈɑːɹdən"));
+  const again = PR.automaticDirections(stream("ɪn ðə ɡˈɑːɹdən"), PR.defaultProsody(), seen);
+  expect(again.find(d => d.word === 2)!.accentDB < fresh.find(d => d.word === 2)!.accentDB,
+         "hearing it a second time steps back");
+
+  // Every dial has to be able to turn the rule off it controls.
+  const flat = PR.automaticDirections(cat,
+    { focus: 0, phraseFinal: 0, deaccentRepeats: 0, contrast: 0 });
+  equal(flat, [], "turned all the way down it directs nothing at all");
+  const noContrast = PR.automaticDirections(cat, { ...PR.defaultProsody(), contrast: 0 });
+  expect(noContrast.every(d => d.stretch >= 1), "and contrast alone can be turned off");
+
+  equal(PR.automaticDirections(stream("")), [], "an empty sentence is not a crash");
+  equal(PR.automaticDirections(stream("ðə ɐ")).filter(d => d.accentDB > 0).length, 0,
+        "a phrase with nothing to accent makes no point rather than inventing one");
+  for (const d of PR.automaticDirections(cold)) {
+    expect(d.stretch >= 0.5 && d.stretch <= 2.5 && d.accentDB <= T.fullAccentDB,
+           `an automatic direction on ${d.word} stays inside what was approved by ear`);
+  }
 }
 
 // ----------------------------------------------------------------- settings

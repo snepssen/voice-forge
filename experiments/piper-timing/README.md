@@ -619,3 +619,58 @@ The phoneme class map and the plan builder are now ported to Swift and held to
 the same 53 assertions as the TypeScript suite, wording included. Both engines
 report their token layout from the same loop that builds their ids. Ids are
 unchanged on both sides: parity still reads 1.637 s against 1.637 s.
+
+### Automatic dynamics — 2026-09-16
+
+The per-sound layer can hold any sound by any amount, but directing a paragraph
+a phoneme at a time is not a feature anybody wants. `automatic_audition.mjs`
+renders plain prose with no markup, no word chosen by hand and no number set per
+sentence, so the manual controls become a way to disagree with a reading rather
+than the only way to get one.
+
+It leans on work espeak has already done. A phonemized sentence is not a string
+of dictionary pronunciations: `I` alone is `ˈaɪ` but arrives in a sentence as
+`aɪ`, `about` is demoted from `ɐbˈaʊt` to `ɐbˌaʊt`, and `on the` arrives as one
+group, `ɔnðə`. So the stream itself says which words carry weight, and a primary
+stress mark is the classification — no function-word list, and no mapping back
+to written words.
+
+That last point is not a convenience. Written words do not survive the journey
+one for one: "The cat sat on the mat in the sun." is nine written words and
+**seven** phoneme groups, because `on the` and `in the` each merge. A direction
+addressed by written-word index would have moved the wrong sound from the fourth
+word onward. `SoundDirection.word` has always indexed the phoneme group, so the
+engine was already right; it is display that needs the mapping.
+
+Three rules in `cross-platform/src/core/prosody.ts`: the last word able to carry
+it takes the point of its phrase, a phrase settles at its clause mark,
+unstressed material gives way slightly, and a word already said in the paragraph
+steps back. Readings produced:
+
+    ðə  kˈæt  sˈæt  ɔnðə  mˈæt  ɪnðə  [sˈʌn]
+    ɪt  wʌz  [kˈoʊld,]  ɪt  wʌz  [lˈeɪt,]  ænd  nˈoʊbɑːdi  [kˈeɪm]
+    aɪ  hæv  tˈoʊld  juː  ɐbˌaʊt  ðə  [dˈɛdlaɪn]
+    ðə  dˈɛdlaɪn  həznɑːt  [mˈuːvd]
+
+The last pair is the given/new rule working: "deadline" takes the point when it
+is new, and steps aside for "moved" when it has already been heard.
+
+Known limits, stated rather than discovered later. Nuclear stress defaults to
+the last content word, so "She was absolutely furious about the noise from the
+garden" puts its point on "garden" — defensible, and not what a person who meant
+"furious" would do. Negation and contrast are semantic and espeak does not mark
+them, so "has not moved" reduces "not" when a person would lean on it. Both are
+exactly what a manual override is for.
+
+Checks: the duration prediction never moved, no token the rules did not name
+changed length, no clip reached the sample ceiling, and every automatic direction
+stays inside the range approved by ear. Added time runs 35 ms on the shortest
+sentence to 337 ms on the longest.
+
+```sh
+node experiments/piper-timing/automatic_audition.mjs /absolute/epoch702-timing.onnx /absolute/out-dir
+```
+
+**Listening verdict: pending.** The checks say the rules did what they said. They
+do not say this is a better reading, and the bar for a rule that runs on every
+sentence unasked is that it is wrong quietly. The Swift port waits on the verdict.
