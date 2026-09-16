@@ -173,10 +173,18 @@ sequence. A new onset-guard test preserves the dry source through 1.390s, then
 crossfades to the existing shifted output by 1.410s. This protects both the
 consonant and the disputed vowel onset; later shifted audio stays sample-identical
 to the prior variants. The shift magnitude is retained, but its onset is delayed.
-This is a manual fixed-clip ablation, not a general consonant detector or proven
-fix. The new neutral control and both guarded shifts await listening for removal
-of the “t” crackle without merely moving an artifact into the vowel. Seven
-diagnostic tests pass; app integration and alternative-renderer work remain deferred.
+This is a manual fixed-clip ablation, not a general consonant detector. Asked
+whether “t” is clean and whether crackling moved into “o”, the user reports
+**“All clean now”**. The onset-protected neutral and both shifted versions therefore
+pass this listening check. This establishes a clean fixed-clip result, not the
+precise artifact mechanism, automatic boundary detection or emotional performance.
+Seven diagnostic tests pass; app integration and alternative-renderer work remain deferred.
+
+Next gate: derive safe voiced regions from audio rather than this timestamp,
+leave uncertain onset/transient regions unchanged, and test other sentences in
+both Suno and Rode voices. The passing fixed-clip output remains a reference;
+retain both dry-region equality and actual shifted-core evidence to prevent an
+inaudible/no-op implementation being mistaken for successful expression.
 See the experiment README and its diagnostic manifests for reproducible evidence.
 Believable emotional acting still requires separate evidence; timing control
 alone does not demonstrate happiness, anger, flirtation, or intimacy.
