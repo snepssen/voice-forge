@@ -44,6 +44,11 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: windows
+          # The publish job downloads this minutes later and attaches it to the
+          # release, which is the copy that lasts. Keeping a second one for the
+          # default ninety days filled the account's whole Actions storage
+          # allowance with duplicates of files already published.
+          retention-days: 1
           path: |
             cross-platform/dist/*.exe
             cross-platform/dist/*.zip
@@ -92,6 +97,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: linux
+          retention-days: 1
           path: |
             cross-platform/dist/*.tar.gz
             cross-platform/dist/*.AppImage
@@ -111,7 +117,11 @@ jobs:
       - name: Package the app
         run: ditto -c -k --keepParent "Voice Forge.app" "Voice-Forge-macOS.zip"
       - uses: actions/upload-artifact@v7
-        with: { name: macos, path: macos/Voice-Forge-macOS.zip, if-no-files-found: error }
+        with:
+          name: macos
+          retention-days: 1
+          path: macos/Voice-Forge-macOS.zip
+          if-no-files-found: error
 
   publish:
     needs: [windows, linux, macos]
