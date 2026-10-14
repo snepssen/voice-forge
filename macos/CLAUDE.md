@@ -12,12 +12,22 @@ where shaping it is the entire point — so the same three scales, the same
 padding decisions and the same pause behaviour are on the outside, with what
 each is worth printed underneath.
 
-The engine was **copied, not shared**. The two apps want different things from
-the same model and a shared target would have to serve both; divergence should
-be a deliberate edit visible in this project's own history. One difference
-exists already: Gateway Forge respells `I-There` and `REBAL` before espeak sees
-them, because those are its own vocabulary. A general TTS tool must not quietly
-rewrite the words it was given, so that table is gone.
+**The mechanism is shared, the taste is not** (owner's decision, 2026-10-14).
+The engine was first copied, not shared, so that divergence would be a
+deliberate edit in this project's history. The copies drifted anyway, and
+where they differed it was never mechanism: three espeak-ng builds of one
+pinned revision, three phonemizers, the same 513 data files three times. So
+espeak-ng and its data, the phonemizer and the Piper inference call now come
+from [voice-core](https://github.com/snepssen/voice-core), which Gateway Forge
+and the Interpreter use too. What made this app different stays here: the
+token layout, the duration dials, the padding and pause decisions, and **no
+respellings**. Gateway Forge respells `I-There` and `REBAL` because those are
+its own vocabulary; it passes them to voice-core as an option, and this app
+passes none, because a general TTS tool must not quietly rewrite the words it
+was given. voice-core's tests hold its English phonemes word for word to what
+this app's own espeak build produced, and a voice-core release reaches this app
+only through `vfcheck` and `scripts/check-shared-assets.sh`
+(voice-core's `scripts/release.sh`).
 
 ### Voices
 

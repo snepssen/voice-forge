@@ -108,8 +108,11 @@ while IFS= read -r name; do
     exit 1; }
   voice_count=$((voice_count + 1))
 done < <(echo "$APP_VOICES")
-[ -d "$VOICE_RESOURCES/espeak-ng-data" ] || {
-  echo "error: espeak-ng-data did not land in the app" >&2; exit 1; }
+# espeak-ng's data comes in voice-core's resource bundle, not this app's.
+CORE_BUNDLE="$(find "$APP/Contents/Resources" -maxdepth 1 -iname '*VoiceCore*.bundle' | head -1)"
+[ -n "$CORE_BUNDLE" ] && { [ -s "$CORE_BUNDLE/espeak-ng-data/phontab" ] \
+  || [ -s "$CORE_BUNDLE/Contents/Resources/espeak-ng-data/phontab" ]; } || {
+  echo "error: voice-core's espeak-ng-data did not land in the app" >&2; exit 1; }
 echo "voices packaged: $(echo "$APP_VOICES" | tr '\n' ' ')($voice_count, timing verified)$([ "$pruned" -gt 0 ] && echo ", $pruned pruned")"
 
 # The training guide travels with the app, so "How to train one" works with no

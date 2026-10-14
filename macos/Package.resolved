@@ -1,5 +1,5 @@
 {
-  "originHash" : "ace58ceb6753e6ff82ee712ddfbaecb132442d3ee0256a8a5cf21a290c18d744",
+  "originHash" : "3bd6707818c05312740e80813ab0d053ff174299cf66709fc8c68ab9b61d9164",
   "pins" : [
     {
       "identity" : "onnxruntime-swift-package-manager",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "b7fb7f7dea8a2469e6335d95a61b8f36d0dc83b2",
         "version" : "1.24.2"
+      }
+    },
+    {
+      "identity" : "voice-core",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/snepssen/voice-core",
+      "state" : {
+        "revision" : "fdca84e8f742a9136523d2ffc9416478ed51bac5",
+        "version" : "1.0.1"
       }
     }
   ],

@@ -14,7 +14,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-MAC_DATA=macos/Sources/VoiceForgeTTS/Resources/espeak-ng-data
+# The macOS build reads voice-core's copy, the one every snepssen app shares.
+[ -d macos/.build/checkouts/voice-core ] || (cd macos && swift package resolve >/dev/null)
+MAC_DATA=macos/.build/checkouts/voice-core/Sources/VoiceCore/Resources/espeak-ng-data
 XP_DATA=cross-platform/resources/espeak-ng-data
 MAC_MODEL=macos/Sources/VoiceForgeTTS/Resources/en_US-snepssen-medium.onnx
 XP_MODEL=cross-platform/resources/voices/en_US-snepssen-medium.onnx

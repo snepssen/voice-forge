@@ -1,22 +1,6 @@
 import Foundation
-import OnnxRuntimeBindings
+import VoiceCore
 import VoiceForgeCore
-
-/// The bundled voice's config.json — the exact fields `piper.voice.PiperVoice`
-/// reads, decoded the same way.
-struct PiperVoiceConfig: Decodable {
-    struct Audio: Decodable { var sample_rate: Int }
-    struct Espeak: Decodable { var voice: String }
-    struct Inference: Decodable {
-        var noise_scale: Double
-        var length_scale: Double
-        var noise_w: Double
-    }
-    var audio: Audio
-    var espeak: Espeak
-    var inference: Inference
-    var phoneme_id_map: [String: [Int]]
-}
 
 public enum VoiceEngineError: LocalizedError {
     case noEnvironment
@@ -72,12 +56,11 @@ public struct RenderedSentence: Sendable {
 /// they are `SynthesisSettings` fields — a voiceover has reasons a meditation
 /// tape does not, and this tool exists to let someone find out what they cost.
 public final class VoiceEngine: @unchecked Sendable {
-    private let session: ORTSession
+    /// The model, its config and its inference call, from voice-core.
+    private let model: PiperModel
     private let phonemizer: EspeakPhonemizer
-    private let config: PiperVoiceConfig
+    private var config: PiperModel.Config { model.config }
     public let voice: String
-
-    private nonisolated(unsafe) static let env: ORTEnv? = try? ORTEnv(loggingLevel: .warning)
     private var defaultPhonemeCache: [String: String] = [:]
 
     /// The rate this model actually speaks at, read from its own config.
@@ -110,11 +93,10 @@ public final class VoiceEngine: @unchecked Sendable {
         return VoiceLibrary.scan(files: files, in: dir, bundled: false)
     }
 
-    /// The espeak-ng data, which every voice shares. Bundled, not per voice —
-    /// a Piper export carries a model and a config, never the phonemizer.
-    public static func espeakDataDirectory() -> URL? {
-        Bundle.module.url(forResource: "espeak-ng-data", withExtension: nil)
-    }
+    /// The espeak-ng data, which every voice shares. Not per voice — a Piper
+    /// export carries a model and a config, never the phonemizer — and since
+    /// voice-core, not this app's either: the one copy every snepssen app reads.
+    public static func espeakDataDirectory() -> URL? { EspeakData.directory }
 
     public convenience init(voice: String) throws {
         guard let profile = Self.availableVoices().first(where: { $0.name == voice })
@@ -123,15 +105,12 @@ public final class VoiceEngine: @unchecked Sendable {
     }
 
     public init(profile: VoiceProfile) throws {
-        guard let env = Self.env else { throw VoiceEngineError.noEnvironment }
         self.voice = profile.name
         guard let dataDir = Self.espeakDataDirectory() else {
             throw VoiceEngineError.noModel(profile.name)
         }
-        config = try JSONDecoder().decode(PiperVoiceConfig.self,
-                                          from: Data(contentsOf: profile.configURL))
-        session = try ORTSession(env: env, modelPath: profile.modelURL.path, sessionOptions: nil)
-        phonemizer = try EspeakPhonemizer(dataDirectory: dataDir, voice: config.espeak.voice)
+        model = try PiperModel(model: profile.modelURL, config: profile.configURL)
+        phonemizer = try EspeakPhonemizer(dataDirectory: dataDir, voice: model.config.espeak.voice)
     }
 
     // MARK: rendering
@@ -203,7 +182,7 @@ public final class VoiceEngine: @unchecked Sendable {
     /// exactly as it always did, and the timing controls have nothing to
     /// address rather than failing.
     public var directsTiming: Bool {
-        ((try? session.inputNames()) ?? []).contains(Self.durationFactorsInput)
+        model.takesDurationFactors
     }
 
     /// How this sentence should be read, if nobody has said otherwise.
@@ -485,53 +464,20 @@ public final class VoiceEngine: @unchecked Sendable {
         return TokenLayout(ids: ids, slots: slots, words: word + 1)
     }
 
-    static let durationFactorsInput = "vf_duration_factors"
+    static let durationFactorsInput = PiperModel.durationFactorsInput
     static let baseFramesOutput = "vf_base_frames"
     /// The exporter's own name for the rounded durations, kept as the patch
     /// found it rather than renamed.
     static let actualFramesOutput = "/Ceil_output_0"
 
+    /// One inference call through voice-core's `PiperModel`. With no factors a
+    /// timing-patched graph is fed ones, which is the stock voice exactly.
     private func infer(ids: [Int], settings: SynthesisSettings,
                        factors: [Float] = []) throws -> (samples: [Float], frames: [Float]) {
-        let inputData = NSMutableData(bytes: ids.map { Int64($0) }, length: ids.count * 8)
-        let inputTensor = try ORTValue(tensorData: inputData, elementType: .int64,
-                                       shape: [1, NSNumber(value: ids.count)])
-        var lengthValue = Int64(ids.count)
-        let lengthData = NSMutableData(bytes: &lengthValue, length: 8)
-        let lengthTensor = try ORTValue(tensorData: lengthData, elementType: .int64, shape: [1])
-
-        // The order is the model's, not ours: noise, length, noise_w.
-        var scales: [Float] = [Float(settings.noiseScale),
-                               Float(settings.lengthScale),
-                               Float(settings.noiseW)]
-        let scalesData = NSMutableData(bytes: &scales, length: 12)
-        let scalesTensor = try ORTValue(tensorData: scalesData, elementType: .float, shape: [3])
-
-        var inputs = ["input": inputTensor, "input_lengths": lengthTensor,
-                      "scales": scalesTensor]
-        if !factors.isEmpty {
-            var values = factors
-            let factorData = NSMutableData(bytes: &values,
-                                           length: values.count * MemoryLayout<Float>.size)
-            inputs[Self.durationFactorsInput] = try ORTValue(
-                tensorData: factorData, elementType: .float,
-                shape: [1, 1, NSNumber(value: values.count)])
-        }
-
-        let available = Set(((try? session.outputNames()) ?? []))
-        var wanted: Set<String> = ["output"]
-        if available.contains(Self.actualFramesOutput) { wanted.insert(Self.actualFramesOutput) }
-
-        let outputs = try session.run(withInputs: inputs, outputNames: wanted, runOptions: nil)
-        guard let tensor = outputs["output"], let data = try tensor.tensorData() as Data?
-        else { throw VoiceEngineError.noOutput }
-
-        func floats(_ value: ORTValue?) -> [Float] {
-            guard let value, let data = try? value.tensorData() as Data else { return [] }
-            let count = data.count / MemoryLayout<Float>.size
-            return data.withUnsafeBytes { Array($0.bindMemory(to: Float.self).prefix(count)) }
-        }
-        return (floats(tensor), floats(outputs[Self.actualFramesOutput]))
+        let result = try model.infer(ids, noiseScale: settings.noiseScale, lengthScale: settings.lengthScale,
+                                     noiseW: settings.noiseW, durationFactors: factors.isEmpty ? nil : factors,
+                                     extraOutputs: [Self.actualFramesOutput])
+        return (result.samples, result.extra[Self.actualFramesOutput] ?? [])
     }
 
     /// The IPA a piece of text will actually be spoken from.
