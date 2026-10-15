@@ -1,0 +1,21 @@
+name: voice-core
+
+# The speech engine comes from github.com/snepssen/voice-core. Once a day, or
+# on demand from the Actions tab, this moves to its newest release, runs
+# vfcheck and the shared-assets check, and pushes the new Package.resolved only
+# if they pass. A run started by hand always runs the checks.
+on:
+  schedule:
+    - cron: "11 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    uses: snepssen/voice-core/.github/workflows/update-voice-core.yml@main
+    with:
+      package-path: macos
+      checks: swift run -q vfcheck && ../scripts/check-shared-assets.sh
+      always-check: ${{ github.event_name == 'workflow_dispatch' }}
