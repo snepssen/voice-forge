@@ -42,7 +42,14 @@ public enum AppDirectories {
         #endif
     }
 
-    static var home: URL { FileManager.default.homeDirectoryForCurrentUser }
+    static var home: URL {
+        #if os(macOS)
+        FileManager.default.homeDirectoryForCurrentUser
+        #else
+        // iOS has no per-user home; the app's own container stands in.
+        URL(fileURLWithPath: NSHomeDirectory())
+        #endif
+    }
 
     /// Voices the listener has installed. One flat folder of Piper exports.
     public static var voices: URL { support.appending(path: "Voices") }
