@@ -22,11 +22,12 @@ import PackageDescription
 
 let package = Package(
     name: "VoiceForge",
-    // iOS for companion-core, which speaks through this engine on iPhone and
-    // iPad; nothing in VoiceForgeCore or VoiceForgeTTS is Mac-only.
+    // iOS as well: nothing in VoiceForgeCore or VoiceForgeTTS is Mac-only.
+    // (companion-forge used to speak through this engine on iPhone and iPad;
+    // it speaks with the polyglot voice now and no longer depends on it.)
     platforms: [.macOS(.v14), .iOS(.v17)],
-    // The engine and its arithmetic, for other apps to read through: the
-    // companion uses the automatic reading and the lift, not this app's UI.
+    // The engine and its arithmetic, for other apps to read through, apart
+    // from this app's UI.
     products: [
         .library(name: "VoiceForgeCore", targets: ["VoiceForgeCore"]),
         .library(name: "VoiceForgeTTS", targets: ["VoiceForgeTTS"]),
