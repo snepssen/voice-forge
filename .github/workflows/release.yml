@@ -1,8 +1,9 @@
-# Tag a version, get three binaries and a release.
+# Tag a version, get the release.
 #
-# Each platform builds on itself, because cross-building from one host stops
-# partway: electron-builder ships an x86_64 mksquashfs for macOS hosts, so an
-# AppImage cannot be produced on Apple Silicon at all, and NSIS needs wine.
+# Windows and Linux build on their own OS, x64 and arm64. macOS is the Swift
+# app, not an Electron target. Cross-building the Electron app from one OS
+# stops partway: electron-builder ships an x86_64 mksquashfs for macOS hosts,
+# so an AppImage cannot be produced on Apple Silicon at all, and NSIS needs wine.
 #
 # Nothing here auto-updates anything. It produces files, attaches them to a
 # release, and stops.
@@ -40,7 +41,28 @@ jobs:
       - run: npm run check
       - run: npm run parity
       - run: npm run smoke
-      - run: npx electron-builder --win nsis zip --publish never
+      # electron-builder 25.1.8 returns a named CLI target list before it reads
+      # the arch lists in build.win.target, so `--win nsis zip` on
+      # windows-latest is x64 only and install.ps1 never sees an *arm64*.exe.
+      # `--x64` and `--arm64` are applied to the targets named beside them.
+      # Two invocations: one build of both NSIS arches also writes a universal
+      # installer whose name drops ${arch} (Voice-Forge.exe). build.win.target
+      # is x64 NSIS, x64 zip, and arm64 NSIS, and that is the whole set.
+      - name: Windows x64 (NSIS and zip)
+        run: npx electron-builder --win nsis zip --x64 --publish never
+      - name: Windows arm64 NSIS
+        run: npx electron-builder --win nsis --arm64 --publish never
+      # install.ps1 selects *arm64*.exe on ARM Windows and *x64*.exe otherwise.
+      # The upload glob is *.exe, which is not the same check: a differently
+      # named installer would still upload and the script would miss it.
+      # Both builds write into dist. If the arm64 build removed the x64 files,
+      # this fails the job instead of publishing a Windows release with no zip.
+      - name: Installer names
+        shell: pwsh
+        run: |
+          foreach ($f in @('dist/Voice-Forge-x64.exe', 'dist/Voice-Forge-arm64.exe', 'dist/Voice-Forge-x64.zip')) {
+            if (-not (Test-Path $f)) { throw "missing $f" }
+          }
       - uses: actions/upload-artifact@v7
         with:
           name: windows
@@ -49,6 +71,8 @@ jobs:
           # default ninety days filled the account's whole Actions storage
           # allowance with duplicates of files already published.
           retention-days: 1
+          # Extension globs, so Voice-Forge-arm64.exe is uploaded with the x64
+          # installer and the x64 zip. There is no arm64 zip.
           path: |
             cross-platform/dist/*.exe
             cross-platform/dist/*.zip
@@ -69,30 +93,46 @@ jobs:
       - run: npm run smoke
 
       # tar.gz is the artifact that has actually been run: a Steam Deck, x86-64,
-      # SteamOS. It builds, it launches, and it sounds right. So it is the one
-      # step allowed to fail the release.
-      - name: Linux archive (verified on SteamOS)
-        run: npx electron-builder --linux tar.gz --publish never
+      # SteamOS. It builds, it launches, and it sounds right. x64 stays
+      # required. arm64 is required as well: install.sh looks for arm64.tar.gz
+      # and exits if the release has none. A named target skips the arch list
+      # in build.linux.target, so the arch flags are explicit, and each arch is
+      # its own step so the log names which one failed.
+      - name: Linux archive x64 (verified on SteamOS)
+        run: npx electron-builder --linux tar.gz --x64 --publish never
+      - name: Linux archive arm64
+        run: npx electron-builder --linux tar.gz --arm64 --publish never
 
       # AppImage and deb have never been built successfully anywhere in this
       # project -- AppImage cannot even be attempted from macOS, where
       # electron-builder ships an x86_64 mksquashfs. They are attempted here
       # and allowed to fail, because an unproven convenience format should not
-      # take down a release of the format people have actually used. Each is
-      # its own step so the log names which one broke rather than reporting one
-      # opaque exit code for three targets at once.
+      # take down a release of the format people have actually used. arm64
+      # AppImage is the same kind of attempt. deb stays x64, which is all
+      # build.linux.target asks for. Each target and arch is its own step so
+      # the log names which one broke.
       - name: Install the packaging tools deb and AppImage want
         run: sudo apt-get update && sudo apt-get install -y fakeroot dpkg libarchive-tools
         working-directory: .
-      - name: AppImage (unproven)
+      - name: AppImage x64 (unproven)
         continue-on-error: true
-        run: npx electron-builder --linux AppImage --publish never
-      - name: deb (unproven)
+        run: npx electron-builder --linux AppImage --x64 --publish never
+      - name: AppImage arm64 (unproven)
         continue-on-error: true
-        run: npx electron-builder --linux deb --publish never
+        run: npx electron-builder --linux AppImage --arm64 --publish never
+      - name: deb x64 (unproven)
+        continue-on-error: true
+        run: npx electron-builder --linux deb --x64 --publish never
 
       - name: What actually built
         run: ls -la dist/ || true
+
+      # install.sh selects arm64.tar.gz or x64.tar.gz. *.tar.gz would upload a
+      # file the script does not recognise, so the names are checked here.
+      - name: Archive names
+        run: |
+          test -f dist/Voice-Forge-x64.tar.gz
+          test -f dist/Voice-Forge-arm64.tar.gz
 
       - uses: actions/upload-artifact@v7
         with:
@@ -102,8 +142,10 @@ jobs:
             cross-platform/dist/*.tar.gz
             cross-platform/dist/*.AppImage
             cross-platform/dist/*.deb
-          # warn, not error: the tar.gz step above already failed the job if the
-          # proven artifact is missing, and the other two are allowed to be.
+          # warn, not error: the tar.gz steps above already failed the job if
+          # either archive is missing. AppImage and deb are allowed to be
+          # absent. The globs match Voice-Forge-arm64.tar.gz and
+          # Voice-Forge-arm64.AppImage along with the x64 files.
           if-no-files-found: warn
 
   macos:
