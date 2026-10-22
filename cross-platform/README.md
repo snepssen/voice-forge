@@ -72,8 +72,9 @@ Silicon at all (`bad CPU type in executable`), and NSIS needs wine. `tar.gz` is
 the one Linux target that builds anywhere, and it is complete: app.asar, the
 voice, all 952 espeak-ng data files and the training guide.
 
-`.github/workflows/build.yml` runs each platform on itself, gated on all three
-check suites. It publishes nothing and sets up no update channel.
+`../.github/workflows/release.yml` builds Windows and Linux on themselves,
+gated on all three check suites, and attaches the archives to a draft release.
+There is no update channel. The Mac release is the Swift app, not this tree.
 
 ## If `npm install` leaves Electron broken
 
