@@ -307,4 +307,9 @@ connect(UnsafeMutableRawPointer(application), "activate") { app, _ in
 // would refuse any it was not told about.
 let status = g_application_run(UnsafeMutablePointer<GApplication>(OpaquePointer(application)),
                                1, CommandLine.unsafeArgv)
-exit(status)
+// _exit, not exit: the voice may still be loading on another thread, and
+// exit() runs ONNX Runtime's C++ static destructors underneath it, which
+// crashes (the same shutdown crash voice-forge's check-in.sh works around).
+// There is nothing left to save, so leave without them.
+fflush(stdout)
+_exit(status)
