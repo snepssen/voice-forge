@@ -9,6 +9,10 @@ let package = Package(
     name: "VoiceForgeLinux",
     dependencies: [
         .package(path: "../macos"),
+        // The first voice-core that speaks on Linux (espeak-ng from source,
+        // ONNX Runtime's C API). ../macos asks only for 1.0.1, which is all
+        // the Mac needs; this keeps a Linux build from resolving below it.
+        .package(url: "https://github.com/snepssen/voice-core", from: "1.1.0"),
     ],
     targets: [
         // GTK4 and libadwaita's C APIs, imported directly: no binding layer.
@@ -23,6 +27,7 @@ let package = Package(
                 "CGtk",
                 .product(name: "VoiceForgeCore", package: "macos"),
                 .product(name: "VoiceForgeTTS", package: "macos"),
+                .product(name: "VoiceCore", package: "voice-core"),
             ]),
     ],
     // GTK's callbacks arrive on its own main loop, as C functions; Swift 6's

@@ -26,17 +26,9 @@ jobs:
       - name: GTK4, libadwaita and a display to open them on
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends libgtk-4-dev libadwaita-1-dev xvfb xauth
       - run: swift --version
-      # voice-core speaks on Linux since snepssen/voice-core#5. Until that is
-      # released (1.1.0), build against its main; then this step goes.
-      - uses: actions/checkout@v4
-        with:
-          repository: snepssen/voice-core
-          ref: main
-          path: voice-core-linux
-      - name: voice-core with Linux support
-        run: swift package resolve && swift package edit voice-core --path ../voice-core-linux
+      # voice-core's own script, from the checkout SwiftPM makes of it.
       - name: ONNX Runtime
-        run: ../voice-core-linux/scripts/fetch-onnxruntime.sh
+        run: swift package resolve && .build/checkouts/voice-core/scripts/fetch-onnxruntime.sh
       # Linked against the Swift runtime as shared libraries. A user's machine
       # has GTK and libadwaita from its distribution but no Swift toolchain, so
       # the weighing below carries the runtime beside the binary.

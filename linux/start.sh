@@ -44,8 +44,7 @@ if [ ${#missing[@]} -gt 0 ]; then
       [nN]*) echo "Not fetched. Starting again will ask again." ;;
       *) # voice-core's own script, from the checkout SwiftPM keeps of it.
          swift package resolve >/dev/null
-         fetch=$(ls Packages/voice-core/scripts/fetch-onnxruntime.sh .build/checkouts/voice-core/scripts/fetch-onnxruntime.sh 2>/dev/null | head -1)
-         "$fetch" >/dev/null && echo "  ✓ onnxruntime" ;;
+         .build/checkouts/voice-core/scripts/fetch-onnxruntime.sh >/dev/null && echo "  ✓ onnxruntime" ;;
     esac
   fi
   command -v swift >/dev/null && pkg-config --exists gtk4 libadwaita-1 2>/dev/null && [ -f "$ORT" ] || exit 1
