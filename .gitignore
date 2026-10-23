@@ -7,4 +7,5 @@ __pycache__/
 
 # Stray build and session artifacts that land at the repository root.
 /.build/
+/linux/.build/
 :memory:.ses
