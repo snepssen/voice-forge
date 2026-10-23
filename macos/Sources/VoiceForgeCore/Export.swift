@@ -1,12 +1,15 @@
+#if canImport(AVFoundation)
 import AVFoundation
+#endif
 import Foundation
 
 /// Writing the result out, at the rate and depth the destination wants.
 ///
-/// AVFoundation is imported here rather than in the engine target because
-/// `vfcheck` links this and must be able to exercise export end to end. It is
-/// a system framework, so that costs the harness nothing — unlike the ONNX
-/// stack, which is the thing the harness is kept away from.
+/// Resampling uses AVFoundation's converter where AVFoundation exists, and
+/// `bandLimitedResample` elsewhere (Linux, Windows), so this target builds
+/// without it. `vfcheck` holds the portable one to the converter's length,
+/// loudness and peak on every Mac run, which is the only way to know a Linux
+/// export says what a Mac export says.
 public enum Export {
 
     public enum Depth: String, CaseIterable, Sendable, Codable, Identifiable {
@@ -102,6 +105,7 @@ public enum Export {
 
     public static func resample(_ samples: [Float], from: Double, to: Double) throws -> [Float] {
         guard from != to else { return samples }
+        #if canImport(AVFoundation)
         guard let inFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: from,
                                         channels: 1, interleaved: false),
               let outFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: to,
@@ -130,6 +134,39 @@ public enum Export {
         if let convErr { throw convErr }
         guard let ch = outBuf.floatChannelData else { throw ExportError.bufferAllocationFailed }
         return Array(UnsafeBufferPointer(start: ch[0], count: Int(outBuf.frameLength)))
+        #else
+        return bandLimitedResample(samples, from: from, to: to)
+        #endif
+    }
+
+    /// Windowed-sinc resampling in plain Swift, for platforms without
+    /// AVFoundation. The low-pass sits at the lower of the two Nyquist
+    /// frequencies, so downsampling cannot alias; 32 zero crossings a side
+    /// under a Blackman window keep the passband flat well past speech.
+    public static func bandLimitedResample(_ samples: [Float], from: Double, to: Double) -> [Float] {
+        guard from != to, !samples.isEmpty else { return samples }
+        let ratio = to / from
+        let cutoff = Swift.min(1, ratio)
+        let crossings = 32.0
+        let reach = crossings / cutoff  // input samples either side of a point
+        let count = Int((Double(samples.count) * to / from).rounded(.up))
+        var out = [Float](repeating: 0, count: count)
+        for n in 0..<count {
+            let centre = Double(n) / ratio
+            let first = Swift.max(0, Int((centre - reach).rounded(.up)))
+            let last = Swift.min(samples.count - 1, Int((centre + reach).rounded(.down)))
+            guard first <= last else { continue }
+            var sum = 0.0
+            for k in first...last {
+                let x = (centre - Double(k)) * cutoff
+                let sinc = x == 0 ? 1 : sin(.pi * x) / (.pi * x)
+                let w = 0.5 + 0.5 * (x / crossings)  // 0...1 across the window
+                let window = 0.42 - 0.5 * cos(2 * .pi * w) + 0.08 * cos(4 * .pi * w)
+                sum += Double(samples[k]) * sinc * window
+            }
+            out[n] = Float(sum * cutoff)
+        }
+        return out
     }
 
     /// Resample, normalise if asked, write a WAV, and report what happened.
