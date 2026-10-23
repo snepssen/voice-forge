@@ -125,7 +125,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key><string>VoiceForge</string>
-  <key>CFBundleIdentifier</key><string>local.voiceforge.app</string>
+  <key>CFBundleIdentifier</key><string>com.snepssen.voiceforge</string>
   <key>CFBundleName</key><string>Voice Forge</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>

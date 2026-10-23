@@ -29,7 +29,7 @@
   },
   "author": "Snepssen",
   "build": {
-    "appId": "local.voiceforge.app",
+    "appId": "com.snepssen.voiceforge",
     "productName": "Voice Forge",
     "directories": {
       "output": "dist",
@@ -71,6 +71,7 @@
       "artifactName": "Voice-Forge-${arch}.${ext}"
     },
     "nsis": {
+      "guid": "beaa9df3-78d2-5197-bf85-6ba6c06c99ce",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
