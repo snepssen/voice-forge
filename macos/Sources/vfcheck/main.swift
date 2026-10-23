@@ -510,6 +510,43 @@ do {
     } else { c.expect(false, "a normalisation is offered for real audio") }
 }
 
+// --------------------------------------------------------- portable resample
+// The resampler Linux and Windows use. Held here to AVFoundation's converter,
+// on every Mac run, so an export from either says the same thing.
+c.suite("portable resample")
+do {
+    let rate = Audio.modelSampleRate
+    // Speech-band content up to 9 kHz, under the model rate's Nyquist.
+    let voice = (0..<Int(rate * 2)).map { i -> Float in
+        let t = Double(i) / rate
+        return Float(0.05 * sin(2 * .pi * 220 * t) + 0.02 * sin(2 * .pi * 3_100 * t) + 0.01 * sin(2 * .pi * 9_000 * t))
+    }
+    let up = Export.bandLimitedResample(voice, from: rate, to: 48_000)
+    c.equal(up.count, Int((Double(voice.count) * 48_000 / rate).rounded(.up)), "the length follows the ratio")
+    // Measured 2026-10-23 on this signal: this resampler moves the loudness
+    // 0.06 dB and AVFoundation's converter 0.10 dB; they differ from each
+    // other by 0.05 LUFS and 0.08 dB of true peak. Tolerances sit just over.
+    let sourceLUFS = Loudness.integratedLUFS(voice, rate: rate)
+    c.close(Loudness.integratedLUFS(up, rate: 48_000), sourceLUFS, 0.1, "upsampling keeps the loudness")
+    c.close(Loudness.truePeakDBTP(up, rate: 48_000), Loudness.truePeakDBTP(voice, rate: rate), 0.1,
+            "and the true peak")
+    // 15 kHz is above 22.05 kHz's Nyquist: going down, it must be filtered,
+    // not folded back into the voice as a 7 kHz whistle.
+    let high = (0..<96_000).map { Float(0.1 * sin(2 * .pi * 15_000 * Double($0) / 48_000)) }
+    let down = Export.bandLimitedResample(high, from: 48_000, to: rate)
+    let rms = (down.dropFirst(200).dropLast(200).reduce(0) { $0 + Double($1 * $1) } / Double(down.count - 400)).squareRoot()
+    c.expect(20 * log10(Swift.max(rms, 1e-12) / (0.1 / 2.0.squareRoot())) < -60,
+             "a tone above the new Nyquist is removed, not aliased")
+    #if canImport(AVFoundation)
+    let converted = try Export.resample(voice, from: rate, to: 48_000)
+    c.expect(abs(converted.count - up.count) <= 64, "the same length as AVFoundation's converter, within 64 samples")
+    c.close(Loudness.integratedLUFS(up, rate: 48_000), Loudness.integratedLUFS(converted, rate: 48_000), 0.1,
+            "the same loudness as AVFoundation's converter")
+    c.close(Loudness.truePeakDBTP(up, rate: 48_000), Loudness.truePeakDBTP(converted, rate: 48_000), 0.15,
+            "and the same true peak")
+    #endif
+}
+
 // -------------------------------------------------------------------- export
 c.suite("export")
 do {
