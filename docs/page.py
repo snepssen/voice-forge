@@ -14,7 +14,7 @@ PAGE = {
         "slug": "voice-forge",
         "name": "Voice&nbsp;Forge",
         "title": "Voice Forge",
-        "badge": "macOS &amp; Linux verified · Windows built, untested",
+        "license": "GPL-3.0",
         "fonts": "fonts.css",
         "description": "A text-to-speech tool with the synthesiser’s dials on the outside, built on a voice trained from about forty minutes of my own speech.",
         "og_description": None,
@@ -38,6 +38,9 @@ PAGE = {
     {
         "eyebrow": "Measured",
         "heading": "What a comma is worth",
+        "id": "comma",
+        "fold": True,
+        "teaser": 'Piper has no pause table, so each mark was measured: a comma is 145 ms on the bundled voice, and three times that on another.',
         "body": "02.html",
     },
     {
@@ -50,6 +53,9 @@ PAGE = {
     {
         "eyebrow": "Three things it does that other tools don’t",
         "heading": "Pauses, pronunciation, and an honest export",
+        "id": "controls",
+        "fold": True,
+        "teaser": "Pauses in honest units, an IPA dictionary checked against the voice's own symbols, and an export that says what it did.",
         "body": "04.html",
     },
     {
@@ -62,13 +68,20 @@ PAGE = {
     {
         "eyebrow": "Your own voice",
         "heading": "The app will use any Piper voice you give it",
+        "id": "voices",
+        "fold": True,
+        "teaser": 'Drop in any Piper voice, or train one on your own speech; the steps that decide whether it sounds like you.',
         "body": "06.html",
     },
     {
         "eyebrow": "How it’s built",
         "heading": "Two implementations, one set of measurements",
+        "id": "engines",
+        "fold": True,
+        "teaser": 'Swift on the Mac, Electron elsewhere, and a parity suite holding the two engines to the same answers.',
         "body": "07.html",
     },
+    {"folds": True},
     {"grid": True},
     ],
     "footer": [
