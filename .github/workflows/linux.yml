@@ -37,8 +37,10 @@ jobs:
         run: swift package resolve && swift package edit voice-core --path ../voice-core-linux
       - name: ONNX Runtime
         run: ../voice-core-linux/scripts/fetch-onnxruntime.sh
+      # The Swift runtime goes inside the binary: a user's machine has GTK and
+      # libadwaita from its distribution, but no Swift toolchain.
       - name: Build
-        run: swift build -c release
+        run: swift build -c release --static-swift-stdlib
       - name: Render without a window
         run: .build/release/VoiceForgeGTK --measure-render
       - name: First frame, three launches
@@ -49,10 +51,12 @@ jobs:
           out=$RUNNER_TEMP/voice-forge-linux
           mkdir -p "$out"
           cp .build/release/VoiceForgeGTK "$out/" && strip "$out/VoiceForgeGTK"
-          # SwiftPM's resource folders, wherever this toolchain puts them.
-          find -L .build -name '*.resources' -prune -path '*release*' -print
-          find -L .build -name '*.resources' -prune -path '*release*' -exec cp -R {} "$out/" \;
-          cp "${XDG_DATA_HOME:-$HOME/.local/share}"/snepssen/onnxruntime/1.24.2/lib/libonnxruntime.so* "$out/"
+          ls -la .build/release/
+          # SwiftPM's resource folders (the voice, espeak-ng's data) sit beside the binary.
+          for d in .build/release/*.resources .build/release/*.bundle; do [ -e "$d" ] && cp -RL "$d" "$out/"; done
+          # The runtime once, under the name PiperModel looks for beside nothing: the
+          # three files in the release are one library and two symlinks to it.
+          cp -L "${XDG_DATA_HOME:-$HOME/.local/share}"/snepssen/onnxruntime/1.24.2/lib/libonnxruntime.so "$out/"
           echo "| piece | size |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           for f in "$out"/*; do echo "| $(basename "$f") | $(du -sh "$f" | cut -f1) |" | tee -a "$GITHUB_STEP_SUMMARY"; done
