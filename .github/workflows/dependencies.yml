@@ -1,4 +1,4 @@
-name: voice-core
+name: dependencies
 
 # The speech engine comes from github.com/snepssen/voice-core. Once a day, or
 # on demand from the Actions tab, this moves to its newest release, runs
@@ -14,8 +14,9 @@ permissions:
 
 jobs:
   update:
-    uses: snepssen/voice-core/.github/workflows/update-voice-core.yml@main
+    uses: snepssen/site-core/.github/workflows/update-dependency.yml@main
     with:
+      packages: voice-core
       package-path: macos
       checks: swift run -q vfcheck && ../scripts/check-shared-assets.sh
       always-check: ${{ github.event_name == 'workflow_dispatch' }}
