@@ -49,7 +49,9 @@ jobs:
           out=$RUNNER_TEMP/voice-forge-linux
           mkdir -p "$out"
           cp .build/release/VoiceForgeGTK "$out/" && strip "$out/VoiceForgeGTK"
-          cp -R .build/release/*.resources "$out/"
+          # SwiftPM's resource folders, wherever this toolchain puts them.
+          find -L .build -name '*.resources' -prune -path '*release*' -print
+          find -L .build -name '*.resources' -prune -path '*release*' -exec cp -R {} "$out/" \;
           cp "${XDG_DATA_HOME:-$HOME/.local/share}"/snepssen/onnxruntime/1.24.2/lib/libonnxruntime.so* "$out/"
           echo "| piece | size |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
