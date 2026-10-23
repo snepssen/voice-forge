@@ -1,7 +1,7 @@
 import * as ort from "onnxruntime-node";
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
-import { initialize as initEspeak, phonemize } from "piper-phonemize";
+import { open as openEspeak, type EspeakPhonemizer } from "../../vendor/voice-core/phonemizer.mjs";
 import type { SynthesisSettings } from "../core/settings.js";
 import { applyExpression, expressionSettings, neutralExpression, normalizedExpression,
          toneFor, expressionProsody, type SentenceExpression } from "../core/expression.js";
@@ -10,7 +10,7 @@ import { accentEnvelope, durationFactors, type SoundDirection } from "../core/ti
 import { restress } from "../core/phonology.js";
 import { automaticDirections, defaultProsody, spokenKeys,
          type ProsodySettings } from "../core/prosody.js";
-import { clauseMarks, spacedEmDashes, spokenCurrency, type Script } from "../core/script.js";
+import { clauseMarks, spokenCurrency, type Script } from "../core/script.js";
 import { applyDictionary, entryKey, type PronunciationEntry } from "../core/pronunciation.js";
 import { scanVoices, mergeVoices, type VoiceProfile, type VoiceRejection } from "../core/voiceLibrary.js";
 import { voicesDir } from "../core/paths.js";
@@ -88,13 +88,14 @@ export interface RenderedSentence {
  * inference call per sentence, and two trailing padding phonemes with the final
  * full stop dropped.
  *
- * **espeak-ng's data is this app's, not the npm package's.** `piper-phonemize`
- * bundles a newer espeak-ng whose en-us rules moved the NORTH/FORCE vowel from
- * `ɔːɹ` to `oːɹ` — measured across 35 ordinary words, 8 differed and every
- * difference was that one, in *four, before, more, door, course, report*. The
- * model was trained on `ɔːɹ`. Pointing the phonemizer at the data this app
- * ships makes it byte-identical to the Mac build, and that is the only reason
- * the two platforms sound the same.
+ * **espeak-ng is the Mac build's, not an npm package's.** The phonemizer is
+ * voice-core's WebAssembly build of espeak-ng 724808c (`vendor/voice-core`,
+ * copied by `scripts/sync-voice-core-js.sh`), with the same clause loop as the
+ * Mac's `EspeakPhonemizer`, reading the data this app ships. `piper-phonemize`,
+ * which this used before, bundles espeak-ng 1.52.0: pointed at this data it
+ * had the right NORTH/FORCE vowel, but lacked the glide (U+02B2) 724808c
+ * inserts before a vowel, `biːʲ ɪn`, and over 923 real lines gave the model a
+ * different phoneme stream on 255 of them. This build differs on none.
  */
 export class VoiceEngine {
   private constructor(
@@ -114,10 +115,12 @@ export class VoiceEngine {
   }
 
   static async open(profile: VoiceProfile, resourcesDir: string): Promise<VoiceEngine> {
-    VoiceEngine.useEspeakData(resourcesDir);
     const config = JSON.parse(readFileSync(profile.configPath, "utf8")) as PiperVoiceConfig;
+    const phonemizer = await VoiceEngine.useEspeakData(resourcesDir, config.espeak.voice);
     const session = await ort.InferenceSession.create(profile.modelPath);
-    return new VoiceEngine(profile.name, session, config, resourcesDir);
+    const engine = new VoiceEngine(profile.name, session, config, resourcesDir);
+    engine.phonemizer = phonemizer;
+    return engine;
   }
 
   static bundledProfiles(resourcesDir: string): VoiceProfile[] {
@@ -136,18 +139,20 @@ export class VoiceEngine {
 
   // MARK: phonemes
 
-  /** espeak-ng is process-global: `initialize` may only be pointed at a data
-   * directory once, no matter how many voices get opened. */
-  private static espeakReady = false;
-  static useEspeakData(parentDir: string): void {
-    if (VoiceEngine.espeakReady) return;
-    initEspeak(parentDir);
-    VoiceEngine.espeakReady = true;
+  /** espeak-ng is process-global: it is pointed at a data directory once, no
+   * matter how many voices get opened. */
+  private static espeakReady: Promise<EspeakPhonemizer> | undefined;
+  static useEspeakData(parentDir: string, voice: string): Promise<EspeakPhonemizer> {
+    // No respellings: a general TTS tool does not rewrite the words it is given.
+    return (VoiceEngine.espeakReady ??= openEspeak({ dataParent: parentDir, voice }));
   }
 
+  private phonemizer!: EspeakPhonemizer;
+
+  /** As the Mac's `phonemizer.phonemize(text, dropFinalStop: false)`: em dashes
+   * are spaced inside it, as there. */
   private espeak(text: string): string {
-    const arrays = phonemize(spacedEmDashes(text), this.config.espeak.voice);
-    return arrays.map(a => String.fromCodePoint(...a)).join(" ");
+    return this.phonemizer.phonemize(text);
   }
 
   /** What espeak says for a word on its own, cached — a ten-word dictionary

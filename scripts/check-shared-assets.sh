@@ -37,6 +37,24 @@ else
   fail=1
 fi
 
+# The Electron build's phonemizer is voice-core's WebAssembly espeak-ng 724808c
+# (scripts/sync-voice-core-js.sh). A stale copy fails open too: piper-phonemize's
+# older espeak-ng dropped the U+02B2 glide on 255 of 923 real lines, silently.
+MAC_JS="${VOICE_CORE:-macos/.build/checkouts/voice-core}/js"
+XP_JS=cross-platform/vendor/voice-core
+same_js() {
+  for f in espeak.cjs espeak.wasm phonemizer.mjs phonemizer.d.mts; do cmp -s "$MAC_JS/$f" "$XP_JS/$f" || return 1; done
+}
+if [ ! -f "$MAC_JS/phonemizer.mjs" ]; then
+  echo "phonemizer:     the voice-core macOS resolves has no js/ (1.2.0 or later has it)" >&2
+  fail=1
+elif same_js; then
+  echo "phonemizer:     identical to voice-core's (espeak-ng 724808c as WebAssembly)"
+else
+  echo "phonemizer DIFFERS from voice-core's: run scripts/sync-voice-core-js.sh" >&2
+  fail=1
+fi
+
 # phontab is the file that actually carries the vowel definitions, so name it
 # separately -- a failure here is the one that would be heard rather than seen.
 if cmp -s "$MAC_DATA/phontab" "$XP_DATA/phontab"; then

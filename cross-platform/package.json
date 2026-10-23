@@ -18,8 +18,7 @@
     "dist:linux": "npm run build && electron-builder --linux --publish never"
   },
   "dependencies": {
-    "onnxruntime-node": "^1.29.0",
-    "piper-phonemize": "^1.4.11"
+    "onnxruntime-node": "^1.29.0"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -37,6 +36,7 @@
     },
     "files": [
       "out/**/*",
+      "vendor/voice-core/**",
       "!out/check/**",
       "electron/preload.cjs",
       "package.json"
@@ -115,6 +115,9 @@
       ],
       "category": "public.app-category.music"
     },
-    "afterPack": "scripts/prune-native.cjs"
+    "afterPack": "scripts/prune-native.cjs",
+    "asarUnpack": [
+      "vendor/voice-core/**"
+    ]
   }
 }
