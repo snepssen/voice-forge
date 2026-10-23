@@ -1,0 +1,60 @@
+# The native Linux build: GTK4 + libadwaita over VoiceForgeCore and
+# VoiceForgeTTS, as voice-forge/linux builds it. It renders without a window,
+# opens the window under Xvfb to time the first frame, and reports what an
+# install weighs beside the Electron release (Voice-Forge-x64.tar.gz, 376 MB).
+name: linux
+
+on:
+  push:
+    paths: ["linux/**", "macos/**", ".github/workflows/linux.yml"]
+  pull_request:
+    paths: ["linux/**", "macos/**", ".github/workflows/linux.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: linux
+    steps:
+      - uses: actions/checkout@v4
+      - name: GTK4, libadwaita and a display to open them on
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends libgtk-4-dev libadwaita-1-dev xvfb xauth
+      - run: swift --version
+      # voice-core speaks on Linux from snepssen/voice-core#5. Until that is
+      # released (1.1.0), build against its branch; then this step goes.
+      - uses: actions/checkout@v4
+        with:
+          repository: snepssen/voice-core
+          ref: claude/linux
+          path: voice-core-linux
+      - name: voice-core with Linux support
+        run: swift package resolve && swift package edit voice-core --path ../voice-core-linux
+      - name: ONNX Runtime
+        run: ../voice-core-linux/scripts/fetch-onnxruntime.sh
+      - name: Build
+        run: swift build -c release
+      - name: Render without a window
+        run: .build/release/VoiceForgeGTK --measure-render
+      - name: First frame, three launches
+        run: for i in 1 2 3; do xvfb-run -a .build/release/VoiceForgeGTK --measure-startup; done
+      - name: What an install weighs
+        run: |
+          set -e
+          out=$RUNNER_TEMP/voice-forge-linux
+          mkdir -p "$out"
+          cp .build/release/VoiceForgeGTK "$out/" && strip "$out/VoiceForgeGTK"
+          cp -R .build/release/*.resources "$out/"
+          cp "${XDG_DATA_HOME:-$HOME/.local/share}"/snepssen/onnxruntime/1.24.2/lib/libonnxruntime.so* "$out/"
+          echo "| piece | size |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          for f in "$out"/*; do echo "| $(basename "$f") | $(du -sh "$f" | cut -f1) |" | tee -a "$GITHUB_STEP_SUMMARY"; done
+          tar -czf "$RUNNER_TEMP/voice-forge-linux.tar.gz" -C "$RUNNER_TEMP" voice-forge-linux
+          echo "| **all of it** | $(du -sh "$out" | cut -f1) |" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "| **as .tar.gz** (Electron's: 376 MB) | $(du -h "$RUNNER_TEMP/voice-forge-linux.tar.gz" | cut -f1) |" | tee -a "$GITHUB_STEP_SUMMARY"
+          ldd "$out/VoiceForgeGTK" | grep -E 'gtk|adwaita|swift' || true
