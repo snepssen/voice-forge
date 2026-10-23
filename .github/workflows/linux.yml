@@ -37,10 +37,13 @@ jobs:
         run: swift package resolve && swift package edit voice-core --path ../voice-core-linux
       - name: ONNX Runtime
         run: ../voice-core-linux/scripts/fetch-onnxruntime.sh
-      # The Swift runtime goes inside the binary: a user's machine has GTK and
-      # libadwaita from its distribution, but no Swift toolchain.
+      # Linked against the Swift runtime as shared libraries. A user's machine
+      # has GTK and libadwaita from its distribution but no Swift toolchain, so
+      # the weighing below carries the runtime beside the binary.
+      # (--static-swift-stdlib fails to link Foundation on Swift 6.4: its
+      # static libFoundation.a cannot find CoreFoundation's symbols.)
       - name: Build
-        run: swift build -c release --static-swift-stdlib
+        run: swift build -c release
       - name: Render without a window
         run: .build/release/VoiceForgeGTK --measure-render
       - name: First frame, three launches
@@ -57,6 +60,10 @@ jobs:
           # The runtime once, under the name PiperModel looks for beside nothing: the
           # three files in the release are one library and two symlinks to it.
           cp -L "${XDG_DATA_HOME:-$HOME/.local/share}"/snepssen/onnxruntime/1.24.2/lib/libonnxruntime.so "$out/"
+          # The Swift runtime the binary links, from the toolchain: what it
+          # would carry, since no distribution ships it.
+          mkdir -p "$out/swift-runtime"
+          ldd "$out/VoiceForgeGTK" | awk '/\/usr\/share\/swift/ {print $3}' | xargs -I{} cp -L {} "$out/swift-runtime/"
           echo "| piece | size |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           for f in "$out"/*; do echo "| $(basename "$f") | $(du -sh "$f" | cut -f1) |" | tee -a "$GITHUB_STEP_SUMMARY"; done
