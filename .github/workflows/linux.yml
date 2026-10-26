@@ -46,6 +46,7 @@ jobs:
           out=$RUNNER_TEMP/voice-forge-linux
           mkdir -p "$out"
           cp .build/release/VoiceForgeGTK "$out/" && strip "$out/VoiceForgeGTK"
+          cp bundle/voice-forge "$out/"
           ls -la .build/release/
           # SwiftPM's resource folders (the voice, espeak-ng's data) sit beside the binary.
           for d in .build/release/*.resources .build/release/*.bundle; do [ -e "$d" ] && cp -RL "$d" "$out/"; done
@@ -63,3 +64,34 @@ jobs:
           echo "| **all of it** | $(du -sh "$out" | cut -f1) |" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "| **as .tar.gz** (Electron's: 376 MB) | $(du -h "$RUNNER_TEMP/voice-forge-linux.tar.gz" | cut -f1) |" | tee -a "$GITHUB_STEP_SUMMARY"
           ldd "$out/VoiceForgeGTK" | grep -E 'gtk|adwaita|swift' || true
+      # The bundle run as a download is: the launcher, with nothing from the
+      # build on its library path. Then kept for a week, for the Steam Deck
+      # and Mint runs (a release would last; this is a measurement build).
+      - name: The bundle runs as it is
+        run: xvfb-run -a "$RUNNER_TEMP/voice-forge-linux/voice-forge" measure
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voice-forge-linux
+          path: ${{ runner.temp }}/voice-forge-linux.tar.gz
+          retention-days: 7
+          if-no-files-found: error
+
+  # A machine with no GTK4 or libadwaita, as SteamOS is: the launcher must
+  # find GNOME's Flatpak runtime, install it for the user and run in it.
+  flatpak:
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: voice-forge-linux }
+      - name: Flatpak, and a display, but no GTK4
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends flatpak xvfb xauth
+          # Ubuntu 24.04 keeps unprivileged user namespaces from bubblewrap.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          ! ldconfig -p | grep -q libadwaita-1
+      - name: Unpack in home, as a download would be
+        run: tar -xzf voice-forge-linux.tar.gz -C "$HOME"
+      - name: The launcher installs the runtime and measures in it
+        run: xvfb-run -a "$HOME/voice-forge-linux/voice-forge" --yes measure

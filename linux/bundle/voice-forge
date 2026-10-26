@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Voice Forge on Linux, from the bundle linux.yml builds: the binary, its
+# voice and espeak-ng data, ONNX Runtime and the Swift runtime, all beside
+# this script. Nothing needs building.
+#
+#   ./voice-forge            the window
+#   ./voice-forge measure    this machine's numbers (render speed, first
+#                            frame three times), also saved beside the bundle
+#   ./voice-forge --yes ...  install what is missing without asking
+#
+# GTK4 and libadwaita come from the system when it has them. A system without
+# them (SteamOS has neither) gets GNOME's Flatpak runtime instead, which has
+# both: offered, Enter means yes, installed into your own account, no root.
+# VOICE_FORGE_GTK=flatpak uses the runtime even when the system has GTK.
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+YES=false; [ "${1:-}" = "--yes" ] && { YES=true; shift; }
+libs="$here/swift-runtime:$here"
+bin="$here/VoiceForgeGTK"
+
+system_has_gtk() {
+  ! LD_LIBRARY_PATH="$libs" ldd "$bin" | grep -q "not found"
+}
+
+runtime=""
+if [ "${VOICE_FORGE_GTK:-}" != flatpak ] && system_has_gtk; then
+  run() { LD_LIBRARY_PATH="$libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$bin" "$@"; }
+  gtk_from="the system"
+else
+  if ! command -v flatpak >/dev/null; then
+    echo "Voice Forge needs GTK4 and libadwaita, and this system has neither them nor Flatpak." >&2
+    LD_LIBRARY_PATH="$libs" ldd "$bin" | grep "not found" | sed 's/^/  /' >&2
+    if command -v apt-get >/dev/null; then echo "  sudo apt-get install libgtk-4-1 libadwaita-1-0" >&2
+    elif command -v pacman >/dev/null; then echo "  sudo pacman -S gtk4 libadwaita" >&2
+    elif command -v dnf >/dev/null; then echo "  sudo dnf install gtk4 libadwaita" >&2
+    fi
+    exit 1
+  fi
+  # The newest GNOME runtime already installed, else the newest Flathub has.
+  newest() { grep -Eo 'org\.gnome\.Platform/[^/]+/[0-9]+' | awk -F/ '{print $3}' | sort -n | tail -1; }
+  branch=$(flatpak list --runtime --columns=ref 2>/dev/null | newest || true)
+  if [ -z "$branch" ]; then
+    flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    branch=$(flatpak remote-ls --user flathub --runtime --arch="$(flatpak --default-arch)" --columns=ref | newest)
+    [ -n "$branch" ] || { echo "Flathub lists no org.gnome.Platform" >&2; exit 1; }
+    echo "This system has no GTK4 or libadwaita. GNOME's Flatpak runtime has both:"
+    echo "  flatpak install --user flathub org.gnome.Platform//$branch"
+    echo "It goes into your own account (no root) and other GNOME apps share it."
+    answer=y
+    $YES || read -r -p "Install it now? [Y/n] " answer || true
+    case "${answer:-y}" in
+      [nN]*) echo "Not installed. Starting again will ask again."; exit 1 ;;
+      *) flatpak install --user -y --noninteractive flathub "org.gnome.Platform//$branch" ;;
+    esac
+  fi
+  runtime="org.gnome.Platform//$branch"
+  # The window, its sound and exported WAVs need the display, audio and home.
+  run() {
+    flatpak run --filesystem=home --filesystem="$here" \
+      --socket=wayland --socket=fallback-x11 --share=ipc --device=dri --socket=pulseaudio \
+      --env=LD_LIBRARY_PATH="$libs" --command="$bin" "$runtime" "$@"
+  }
+  gtk_from="GNOME's Flatpak runtime ($runtime)"
+fi
+
+if [ "${1:-}" = measure ]; then
+  machine=$(cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null || hostname)
+  out="$here/voice-forge-measured-$(echo "$machine" | tr -c 'A-Za-z0-9\n' '-')-$(date +%F).txt"
+  {
+    echo "Voice Forge, native GTK build, $(date '+%F %H:%M')"
+    echo "machine:  $machine, $(nproc) threads, $(awk '/MemTotal/ {printf "%.0f GB", $2/1048576}' /proc/meminfo)"
+    echo "system:   $(. /etc/os-release && echo "$PRETTY_NAME"), ${XDG_SESSION_TYPE:-no session type}"
+    echo "GTK from: $gtk_from"
+    echo "bundle:   $(du -sh "$here" | cut -f1)"
+    run --measure-render
+    for i in 1 2 3; do echo "launch $i: $(run --measure-startup | grep 'first frame')"; done
+  } | tee "$out"
+  echo "saved to $out"
+  exit 0
+fi
+run "$@"
