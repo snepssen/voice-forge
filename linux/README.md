@@ -14,6 +14,19 @@ and libadwaita come from your distribution and need root, so their command is
 printed, not run. ONNX Runtime is fetched into your own data folder. A Swift
 toolchain builds it: <https://www.swift.org/install/linux/>.
 
+**Without building it.** Every change to `linux/` leaves a ready bundle
+(`voice-forge-linux`, kept a week) on its run of the `linux` workflow, under
+Artifacts. Unpack it anywhere in your home folder and run
+
+    voice-forge-linux/voice-forge            # the window
+    voice-forge-linux/voice-forge measure    # this machine's numbers, saved beside it
+
+It carries the voice, espeak-ng's data, ONNX Runtime and the Swift runtime.
+GTK4 and libadwaita come from the system when it has them. SteamOS has
+neither, so there it offers GNOME's Flatpak runtime instead (Enter means yes),
+installed into your own account without root. CI runs that path too, on a
+machine with no GTK at all.
+
 What it does now: the script on the left, Pace, Variation, Cadence and the
 two gaps on the right, Render, Play, Stop and Export (WAV, loudness-matched,
 as the Mac app exports). Not yet: the pronunciation dictionary, expressions,
