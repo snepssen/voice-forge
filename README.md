@@ -61,10 +61,14 @@ passing signal checks does not establish naturalness or emotional expression.
 |---|---|---|
 | [`macos/`](macos) | Swift, SwiftUI, ONNX Runtime | native Mac app |
 | [`cross-platform/`](cross-platform) | TypeScript, Electron, ONNX Runtime | Windows and Linux |
+| [`linux/`](linux) | GTK4 + libadwaita over the Swift core in `macos/` | Linux, experimental |
 
-The interface is drawn in HTML on the cross-platform side rather than handed to
-GTK or Qt, so it looks the same everywhere instead of being three apps that
-happen to share a name.
+The Electron build draws its interface in HTML so it looks the same
+everywhere. The plan has since changed to one Swift core with a native window
+per platform, and `linux/` is the first of those windows. **So the Electron
+build takes fixes and parity work only.** No new feature lands in TypeScript.
+It is retired once the GTK window passes the same fixtures and runs on the
+Steam Deck and Mint.
 
 **The two cores are held to each other.** 20 parity checks compare phonemes
 byte-for-byte and durations to the millisecond — 1.637 s against 1.637 s — with
