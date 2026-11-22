@@ -15,7 +15,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # The macOS build reads voice-core's copy, the one every snepssen app shares.
-[ -d macos/.build/checkouts/voice-core ] || (cd macos && swift package resolve >/dev/null)
+# Always resolve: a checkout left in .build by an older Package.resolved would
+# otherwise be compared against, and pass or fail on the wrong version.
+(cd macos && swift package resolve >/dev/null)
 MAC_DATA=macos/.build/checkouts/voice-core/Sources/VoiceCore/Resources/espeak-ng-data
 XP_DATA=cross-platform/resources/espeak-ng-data
 MAC_MODEL=macos/Sources/VoiceForgeTTS/Resources/en_US-snepssen-medium.onnx

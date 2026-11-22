@@ -1,0 +1,35 @@
+name: shared assets
+
+# The cross-platform build ships copies of the macOS build's espeak-ng data
+# (voice-core's, at the version macos/Package.resolved pins), its voice model
+# and voice-core's phonemizer; scripts/check-shared-assets.sh says why they
+# must be identical. dependencies.yml runs that check only on the day
+# voice-core moves, and release.yml only on a tag; this runs it on every change
+# to a copy or to the pin.
+on:
+  push:
+    paths:
+      - "macos/Package.resolved"
+      - "macos/Sources/VoiceForgeTTS/Resources/**"
+      - "cross-platform/resources/**"
+      - "cross-platform/vendor/voice-core/**"
+      - "scripts/check-shared-assets.sh"
+      - ".github/workflows/shared-assets.yml"
+  pull_request:
+    paths:
+      - "macos/Package.resolved"
+      - "macos/Sources/VoiceForgeTTS/Resources/**"
+      - "cross-platform/resources/**"
+      - "cross-platform/vendor/voice-core/**"
+      - "scripts/check-shared-assets.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/check-shared-assets.sh

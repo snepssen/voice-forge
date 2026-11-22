@@ -5,7 +5,9 @@
 #   scripts/sync-voice-core-js.sh [VOICE_CORE_CHECKOUT]
 set -euo pipefail
 cd "$(dirname "$0")/.."
-[ -d macos/.build/checkouts/voice-core ] || (cd macos && swift package resolve >/dev/null)
+# Always resolve: a checkout left in .build by an older Package.resolved would
+# otherwise be copied from.
+(cd macos && swift package resolve >/dev/null)
 FROM="${1:-macos/.build/checkouts/voice-core}/js"
 TO=cross-platform/vendor/voice-core
 [ -f "$FROM/phonemizer.mjs" ] || { echo "no js/ in $FROM: voice-core 1.2.0 or later has it" >&2; exit 1; }
