@@ -299,7 +299,7 @@ func build(_ app: UnsafeMutablePointer<AdwApplication>) {
 // MARK: - Run
 
 nonisolated(unsafe) var application: UnsafeMutablePointer<AdwApplication>!
-application = adw_application_new("com.snepssen.voiceforge", G_APPLICATION_DEFAULT_FLAGS)
+application = adw_application_new("com.snepssen.voiceforge", GApplicationFlags(rawValue: 0))  // G_APPLICATION_DEFAULT_FLAGS, which Ubuntu 26.04's GLib no longer lets Swift see
 connect(UnsafeMutableRawPointer(application), "activate") { app, _ in
     build(app!.assumingMemoryBound(to: AdwApplication.self))
 }
